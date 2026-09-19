@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HookLoader } from "@/components/shared/HookLoader";
+import { PublicShell } from "@/components/public/PublicShell";
 
 function VendorInvitationAcceptForm() {
   const params = useSearchParams();
@@ -32,7 +33,32 @@ function VendorInvitationAcceptForm() {
     }
   }
 
-  return <main className="grid min-h-screen place-items-center bg-muted/30 p-4"><Card className="w-full max-w-lg rounded-2xl shadow-sm"><CardHeader className="space-y-4 p-6 sm:p-8"><div className="grid size-11 place-items-center rounded-xl bg-[#fff5c7] text-[#9a7600]"><Link2 className="size-5" /></div><div><CardTitle className="text-2xl">Confirm your Hook supplier profile</CardTitle><p className="mt-2 text-sm leading-6 text-muted-foreground">Review the contact details Hook uses to coordinate product sourcing with your Market Associate. This does not create a supplier login.</p></div></CardHeader><CardContent className="p-6 pt-0 sm:p-8 sm:pt-0">{state === "success" ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900"><CheckCircle2 className="size-7" /><h2 className="mt-3 font-semibold">Profile confirmed</h2><p className="mt-1 text-sm leading-6">Your Market supplier record is now marked as consented. Hook will contact you through the details you provided.</p></div> : <form onSubmit={accept} className="space-y-4"><div className="space-y-2"><Label htmlFor="vendor-invite-name">Contact name</Label><Input id="vendor-invite-name" value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Your name" /></div><div className="space-y-2"><Label htmlFor="vendor-invite-phone">Phone number</Label><Input id="vendor-invite-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="080..." /></div><div className="space-y-2"><Label htmlFor="vendor-invite-email">Email <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="vendor-invite-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></div>{state === "error" ? <p className="text-sm text-destructive">{message || "This invitation link is missing or invalid."}</p> : null}<Button type="submit" variant="brand" className="w-full" disabled={state === "saving" || !token}>{state === "saving" ? <HookLoader size="button" /> : <><ShieldCheck className="size-4" /> Confirm supplier details</>}</Button></form>}</CardContent></Card></main>;
+  return (
+    <PublicShell
+      eyebrow="Supplier profile"
+      title="Confirm your Hook supplier profile"
+      description="Review the contact details Hook uses to coordinate product sourcing with your Market Associate. This does not create a supplier login."
+      width="lg"
+      centered
+    >
+      <Card className="rounded-2xl py-6 shadow-sm">
+        <CardHeader className="px-6"><CardTitle className="flex items-center gap-3 text-lg"><span className="grid size-10 place-items-center rounded-xl bg-brand-gold/20"><Link2 className="size-5" /></span>Your contact details</CardTitle></CardHeader>
+        <CardContent className="px-6">
+          {state === "success" ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900"><CheckCircle2 className="size-7" /><h2 className="mt-3 font-semibold">Profile confirmed</h2><p className="mt-1 text-sm leading-6">Your Market supplier record is now marked as consented. Hook will contact you through the details you provided.</p></div>
+          ) : (
+            <form onSubmit={accept} className="space-y-4">
+              <div className="space-y-2"><Label htmlFor="vendor-invite-name">Contact name</Label><Input id="vendor-invite-name" value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Your name" /></div>
+              <div className="space-y-2"><Label htmlFor="vendor-invite-phone">Phone number</Label><Input id="vendor-invite-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="080..." /></div>
+              <div className="space-y-2"><Label htmlFor="vendor-invite-email">Email <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="vendor-invite-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></div>
+              {state === "error" ? <p className="text-sm text-destructive">{message || "This invitation link is missing or invalid."}</p> : null}
+              <Button type="submit" variant="brand" size="lg" className="w-full" disabled={state === "saving" || !token}>{state === "saving" ? <HookLoader size="button" /> : <><ShieldCheck className="size-4" /> Confirm supplier details</>}</Button>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+    </PublicShell>
+  );
 }
 
 export default function VendorInvitationAcceptPage() {

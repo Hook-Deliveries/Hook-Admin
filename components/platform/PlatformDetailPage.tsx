@@ -226,10 +226,10 @@ export function PlatformDetailPage({
         title={name}
         description={query.data?.publicId ? `${title} · ${String(query.data.publicId)}` : title}
         actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <>
             {status ? <StatusBadge status={status} /> : null}
             <Button variant="outline" size="sm" onClick={() => router.back()}><ArrowLeft /> Back</Button>
-          {invitationAction && canManageInvitation && status === "invited" ? (
+            {invitationAction && canManageInvitation && status === "invited" ? (
             <Button size="sm" variant="outline" disabled={sending} onClick={resendInvitation}>
               {sending ? <HookLoader size="button" /> : <><Mail /> Resend invitation</>}
             </Button>
@@ -244,8 +244,8 @@ export function PlatformDetailPage({
               {["suspend", "deactivate"].includes(item.suffix) ? <Ban /> : item.suffix === "archive" ? <Archive /> : item.suffix === "cancel-invitation" ? <ShieldX /> : item.suffix === "revoke-sessions" ? <KeyRound /> : <RotateCcw />}
               {item.label}
             </Button>
-          ))}
-          </div>
+            ))}
+          </>
         }
       />
       <QueryState loading={query.isLoading} error={query.error} loadingLabel={`Loading ${title.toLowerCase()}`} onRetry={() => query.refetch()}>

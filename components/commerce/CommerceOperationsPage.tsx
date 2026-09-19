@@ -50,6 +50,94 @@ function moneyMinor(value: unknown) {
   }).format(Number(value || 0) / 100);
 }
 
+type DeadLetterRow = {
+  id: string;
+  outboxPublicId: string;
+  eventType: string;
+  aggregateId: string;
+  attempts: number;
+  sanitizedError?: string;
+  lastFailedAt?: string;
+  replayStatus: "pending" | "replayed";
+  replayCount?: number;
+};
+
+/**
+ * Events that ran out of automatic retries. Replay puts one back in the queue;
+ * the server ignores a second replay of an event that is no longer dead, so a
+ * double click cannot re-drive it twice.
+ */
+function DeadLetterPanel({ enabled }: { enabled: boolean }) {
+  const queryClient = useQueryClient();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const letters = useApiQuery<{ data: DeadLetterRow[]; pendingCount: number }>(
+    ["commerce", "dead-letters"],
+    "/admin/commerce/outbox/dead-letters",
+    enabled,
+  );
+  const rows = letters.data?.data || [];
+
+  async function replay(id: string) {
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      const result = await apiPost<{ replayed: boolean }>(
+        `/admin/commerce/outbox/dead-letters/${id}/replay`,
+        undefined,
+        { idempotencyKey: `dead-letter-replay-${id}-${Date.now().toString(36)}` },
+      );
+      toast.success(result.replayed ? "Event queued for another attempt" : "Event was already re-queued");
+      await queryClient.invalidateQueries({ queryKey: ["commerce", "dead-letters"] });
+      await queryClient.invalidateQueries({ queryKey: ["commerce", "outbox"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "Could not replay the event");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!rows.length)
+    return <div className="p-10 text-center text-sm text-muted-foreground">No failed events. Nothing needs attention.</div>;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Event</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Last error</TableHead>
+          <TableHead>Last failed</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.id}>
+            <TableCell>
+              <div className="font-medium">{row.eventType}</div>
+              <div className="text-xs text-muted-foreground">{row.outboxPublicId} · {row.attempts} attempts</div>
+            </TableCell>
+            <TableCell>
+              <Badge variant={row.replayStatus === "pending" ? "destructive" : "secondary"}>
+                {row.replayStatus === "pending" ? "Needs attention" : `Replayed${row.replayCount ? ` x${row.replayCount}` : ""}`}
+              </Badge>
+            </TableCell>
+            <TableCell className="max-w-xs truncate text-sm text-muted-foreground" title={row.sanitizedError}>
+              {row.sanitizedError || "—"}
+            </TableCell>
+            <TableCell className="text-sm">{row.lastFailedAt ? new Date(row.lastFailedAt).toLocaleString() : "—"}</TableCell>
+            <TableCell className="text-right">
+              <Button size="sm" variant="outline" disabled={busyId !== null || row.replayStatus === "replayed"} onClick={() => void replay(row.id)}>
+                <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                {busyId === row.id ? "Replaying" : "Replay"}
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 function RecordTable({
   rows,
   kind,
@@ -327,6 +415,10 @@ export function CommerceOperationsPage({
               <ExternalLink className="mr-2 h-4 w-4" />
               Outbox
             </TabsTrigger>
+            <TabsTrigger value="dead-letters">
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              Failed events
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="payments">
             <Card>
@@ -339,6 +431,13 @@ export function CommerceOperationsPage({
             <Card>
               <CardContent className="p-0">
                 <RecordTable rows={exceptions.data || []} kind="exceptions" />
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="dead-letters">
+            <Card>
+              <CardContent className="p-0">
+                <DeadLetterPanel enabled={view === "payments"} />
               </CardContent>
             </Card>
           </TabsContent>

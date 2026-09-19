@@ -1,8 +1,4 @@
-export function PaymentProviderMark({ provider }: { provider: "paystack" | "opay" }) {
-  if (provider === "opay") {
-    return <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white font-black text-[#00b875] shadow-sm ring-1 ring-black/5">O</span>;
-  }
-
+export function PaymentProviderMark() {
   return (
     <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-[#08a5a5] shadow-sm">
       <span className="space-y-1" aria-hidden="true">

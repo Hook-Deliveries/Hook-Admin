@@ -210,7 +210,7 @@ export function RolesPermissionsPage() {
 
   return (
     <div className="w-full space-y-5 px-4 py-5">
-      <PageHeader className="mb-0" title="Roles & Permissions" description="Define clear access boundaries for every Hook operations role. Changes are enforced immediately by the backend." actions={canManage ? <PermissionGuard permission="roles.manage"><Button variant="brand" onClick={openCreate}><Plus /> Create role</Button></PermissionGuard> : null} />
+      <PageHeader className="mb-0" title="Roles & Permissions" description="Define clear access boundaries for every Hook operations role. Changes are enforced immediately by the backend." actions={canManage ? <PermissionGuard permission="roles.manage"><Button variant="brand" size="sm" onClick={openCreate}><Plus /> Create role</Button></PermissionGuard> : null} />
 
       <Card className="overflow-hidden border-0 bg-[#FFC809] shadow-none ring-0">
         <CardContent className="relative overflow-hidden p-6 sm:p-8">

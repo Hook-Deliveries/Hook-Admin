@@ -17,7 +17,7 @@ import { useAdminSession, useApiQuery } from "@/lib/query";
 import { hasPermission } from "@/lib/permissions";
 
 type LegalContent = {
-  type: "terms" | "privacy";
+  type: "terms" | "privacy" | "returns";
   title: string;
   bodyHtml: string;
   version: number;
@@ -28,13 +28,16 @@ type LegalContent = {
 const DOCUMENTS = [
   { type: "terms" as const, label: "Terms of Service", path: "/terms" },
   { type: "privacy" as const, label: "Privacy Policy", path: "/privacy" },
+  { type: "returns" as const, label: "Returns Policy", path: "/returns" },
 ];
+
+type LegalType = (typeof DOCUMENTS)[number]["type"];
 
 export function LegalContentSection() {
   const session = useAdminSession();
   const canView = hasPermission(session.data, "settings.view");
   const canManage = hasPermission(session.data, "settings.manage");
-  const [activeType, setActiveType] = useState<"terms" | "privacy">("terms");
+  const [activeType, setActiveType] = useState<LegalType>("terms");
   const [title, setTitle] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [reason, setReason] = useState("");
@@ -82,9 +85,10 @@ export function LegalContentSection() {
           <FileText className="size-5 text-brand-gold" /> Legal content
         </CardTitle>
         <p className="text-sm leading-6 text-muted-foreground">
-          Terms of Service and Privacy Policy shown to customers at{" "}
-          <span className="font-medium text-foreground">/terms</span> and{" "}
-          <span className="font-medium text-foreground">/privacy</span>. Changes apply immediately —
+          Terms of Service, Privacy Policy, and Returns Policy shown to customers at{" "}
+          <span className="font-medium text-foreground">/terms</span>,{" "}
+          <span className="font-medium text-foreground">/privacy</span>, and{" "}
+          <span className="font-medium text-foreground">/returns</span>. Changes apply immediately —
           no redeploy needed.
         </p>
       </CardHeader>
@@ -92,7 +96,7 @@ export function LegalContentSection() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="w-full space-y-2 sm:w-64">
             <Label htmlFor="legal-document">Document</Label>
-            <Select value={activeType} onValueChange={(value) => setActiveType(value as "terms" | "privacy")}>
+            <Select value={activeType} onValueChange={(value) => setActiveType(value as LegalType)}>
               <SelectTrigger id="legal-document" className="w-full">
                 <SelectValue />
               </SelectTrigger>

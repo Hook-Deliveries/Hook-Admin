@@ -7,6 +7,7 @@ import { HookLoader } from "@/components/shared/HookLoader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Input } from "@/components/ui/input";
 import { MobileButton, MobileEmpty, MobileHeader } from "@/components/mobile/MobileUI";
+import { useQueryClient } from "@tanstack/react-query";
 import { apiPost } from "@/lib/api";
 import { useApiQuery } from "@/lib/query";
 
@@ -34,8 +35,16 @@ function formatDate(value?: string) {
 
 export default function PartnerFulfilmentPage() {
   const custody = useApiQuery<CustodyRecord[]>(["partner", "custody"], "/partner/fulfilment/custody");
+  const queryClient = useQueryClient();
   const [releaseCodes, setReleaseCodes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  /** Custody moves order state, so the orders view has to resync alongside it. */
+  function syncCustody() {
+    void queryClient.invalidateQueries({ queryKey: ["partner", "custody"] });
+    void queryClient.invalidateQueries({ queryKey: ["partner", "orders"] });
+    void queryClient.invalidateQueries({ queryKey: ["partner", "notifications"] });
+  }
 
   async function receive(record: CustodyRecord) {
     if (!record.publicId) return;
@@ -44,7 +53,7 @@ export default function PartnerFulfilmentPage() {
       await apiPost(`/partner/fulfilment/custody/${record.publicId}/receive`, {
         idempotencyKey: `partner-receive:${record.publicId}`,
       });
-      await custody.refetch();
+      syncCustody();
       toast.success("Package received into Partner custody");
     } catch {
       toast.error("The package could not be received");
@@ -66,7 +75,7 @@ export default function PartnerFulfilmentPage() {
         code,
         idempotencyKey: `partner-release:${record.publicId}:${code}`,
       });
-      await custody.refetch();
+      syncCustody();
       toast.success("Order released to the customer");
     } catch {
       toast.error("The order could not be released");

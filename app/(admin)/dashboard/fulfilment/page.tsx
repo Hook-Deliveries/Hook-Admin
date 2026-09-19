@@ -1,15 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
   Box,
-  Check,
   ClipboardCheck,
-  RotateCcw,
   Truck,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,14 +21,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { HookLoader } from "@/components/shared/HookLoader";
 import { AdminWorkflowSheet } from "@/components/shared/AdminWorkflowSheet";
 import { MetricCard } from "@/components/shared/MetricCard";
+import { StageStrip } from "@/components/fulfilment/StageStrip";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { taskAge } from "@/lib/fulfilment-progress";
 import { QueryState } from "@/components/shared/QueryState";
+import { ListRow, initialsOf } from "@/components/shared/ListRow";
+import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { apiPatch, apiPost } from "@/lib/api";
+import { apiPost } from "@/lib/api";
 import { useApiQuery } from "@/lib/query";
 
 type NamedMarket = { name?: string; imageUrl?: string };
@@ -51,17 +52,13 @@ type Row = {
   type?: string;
   orderId?: string;
   version?: number;
+  createdAt?: string;
+  issue?: { type?: string; summary?: string; reportedAt?: string } | null;
   market?: NamedMarket | null;
   hub?: NamedHub | null;
   marketAssociate?: NamedMarketAssociate | null;
   order?: NamedOrder | null;
 };
-
-function initials(name?: string) {
-  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "MA";
-  return `${parts[0][0]}${parts[1]?.[0] || ""}`.toUpperCase();
-}
 
 type MarketAssociateOption = Row & {
   firstName?: string;
@@ -74,12 +71,10 @@ type DirectoryResponse<T> = { data: T[] } | T[];
 
 type ControlTower = {
   tasks: Row[];
-  exceptions: Row[];
   shipments: Row[];
   returns: Row[];
   metrics: {
     openTasks: number;
-    openExceptions: number;
     activeShipments: number;
     openReturns: number;
   };
@@ -87,18 +82,22 @@ type ControlTower = {
 
 type AssignmentForm = { marketAssociateId?: string; hubId?: string; reason?: string };
 
-const workflowLinks = [
-  { label: "Control tower", href: "/dashboard/fulfilment" },
-  { label: "Hub workspace", href: "/dashboard/fulfilment/hub" },
-  { label: "Shipments", href: "/dashboard/fulfilment/shipments" },
-  { label: "Returns", href: "/dashboard/fulfilment/returns" },
-  { label: "Refunds", href: "/dashboard/fulfilment/refunds" },
-];
-
-const label = (value?: string) => String(value || "-").replaceAll("_", " ");
 const identifier = (row?: Row) => row?.publicId || row?.id || "";
 
+/**
+ * The dashboard shows a prioritised preview, not the whole queue — the
+ * dedicated workspaces are for working through everything. Both lists tell you
+ * when they are truncated so a task never silently disappears off the bottom.
+ */
+const TASK_PREVIEW_LIMIT = 12;
+
 export default function FulfilmentControlTowerPage() {
+  const router = useRouter();
+  const overviewQuery = useApiQuery<{
+    sourcing: number; blocked: number; inbound: number; awaitingQc: number; readyToConsolidate: number;
+    consolidating: number; readyToBook: number; inTransit: number; exceptions: number; failed?: number;
+  }>(["admin", "fulfilment", "overview"], "/admin/fulfilment/overview");
+  const overview = overviewQuery.data;
   const query = useApiQuery<ControlTower>(
     ["admin", "fulfilment", "control-tower"],
     "/admin/fulfilment/control-tower",
@@ -111,13 +110,14 @@ export default function FulfilmentControlTowerPage() {
     ["admin", "fulfilment", "hubs"],
     "/admin/fulfilment/hubs?limit=100",
   );
+  const supportQuery = useApiQuery<{ supportEmail?: string }>(
+    ["admin", "support-contact"],
+    "/admin/support-contact",
+  );
+  const supportEmail = supportQuery.data?.supportEmail;
   const [selectedTask, setSelectedTask] = useState<Row>();
-  const [selectedException, setSelectedException] = useState<Row>();
   const [assignments, setAssignments] = useState<
     Record<string, AssignmentForm>
-  >({});
-  const [exceptionReasons, setExceptionReasons] = useState<
-    Record<string, string>
   >({});
   const [pending, setPending] = useState<string>();
 
@@ -128,6 +128,27 @@ export default function FulfilmentControlTowerPage() {
   const hubs = Array.isArray(hubsQuery.data)
     ? hubsQuery.data
     : hubsQuery.data?.data || [];
+
+  async function unblock(task: Row) {
+    const taskId = identifier(task);
+    if (!taskId) return;
+    setPending(`unblock-${taskId}`);
+    try {
+      await apiPost(`/admin/fulfilment/tasks/${taskId}/unblock`, {
+        reason: task.issue?.summary || "Cleared by operations",
+      });
+      toast.success("Task returned to the queue");
+      await query.refetch();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message.replace(/^\d+:\s*/, "")
+          : "Task could not be unblocked",
+      );
+    } finally {
+      setPending(undefined);
+    }
+  }
 
   async function reassign() {
     const taskId = identifier(selectedTask);
@@ -164,53 +185,44 @@ export default function FulfilmentControlTowerPage() {
     }
   }
 
-  async function resolveException() {
-    const exceptionId = identifier(selectedException);
-    const reason = exceptionId ? exceptionReasons[exceptionId]?.trim() : "";
-    if (!exceptionId || !reason) {
-      toast.error("Add a resolution reason first");
-      return;
-    }
+  // Blocked tasks are the ones that need a human; surfaced on the task card
+  // header so they are visible without scanning the whole list.
+  const rawTasks = data?.tasks || [];
+  const blockedTaskCount = rawTasks.filter((task) => task.status === "BLOCKED").length;
 
-    setPending(`exception-${exceptionId}`);
-    try {
-      await apiPatch(`/admin/fulfilment/exceptions/${exceptionId}`, {
-        status: "RESOLVED",
-        reason,
-      });
-      toast.success("Exception resolved");
-      setSelectedException(undefined);
-      await query.refetch();
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message.replace(/^\d+:\s*/, "")
-          : "Exception could not be resolved",
-      );
-    } finally {
-      setPending(undefined);
-    }
-  }
+  // Blocked tasks need a human before anything else can move, so they lead.
+  // Within each group the backend already returns oldest-first.
+  const tasks = [...rawTasks].sort((left, right) => {
+    const blocked = (task: Row) => (task.status === "BLOCKED" ? 0 : 1);
+    return blocked(left) - blocked(right);
+  });
+
+  // Metrics describe where work actually sits, rather than counting rows.
+  const AT_HUB = ["HUB_RECEIVED", "QC_PASSED"];
+  const SOURCING = ["ALERTED", "ACCEPTED", "SOURCING", "PRODUCT_SECURED", "PACKING", "READY_FOR_HUB"];
 
   const metrics = data
     ? [
-        { label: "Open tasks", value: data.metrics.openTasks, icon: Box },
         {
-          label: "Open exceptions",
-          value: data.metrics.openExceptions,
-          icon: AlertTriangle,
-          intent: "danger" as const,
+          label: "Sourcing",
+          value: tasks.filter((task) => SOURCING.includes(String(task.status))).length,
+          icon: Box,
         },
         {
-          label: "Active shipments",
+          label: "Blocked",
+          value: blockedTaskCount,
+          icon: AlertTriangle,
+          intent: blockedTaskCount ? ("danger" as const) : ("neutral" as const),
+        },
+        {
+          label: "At hub",
+          value: tasks.filter((task) => AT_HUB.includes(String(task.status))).length,
+          icon: ClipboardCheck,
+        },
+        {
+          label: "In transit",
           value: data.metrics.activeShipments,
           icon: Truck,
-        },
-        {
-          label: "Returns to review",
-          value: data.metrics.openReturns,
-          icon: RotateCcw,
-          intent: "warning" as const,
         },
       ]
     : [];
@@ -220,25 +232,8 @@ export default function FulfilmentControlTowerPage() {
       <PageHeader
         className="mb-0"
         title="Fulfilment Control Tower"
-        description="Monitor Market Associate sourcing, Hub readiness, shipments, exceptions, returns, and refunds across the current operating scope."
+        description="Monitor Market Associate sourcing, Hub readiness, shipments, returns, and refunds across the current operating scope."
       />
-
-      <nav
-        className="flex gap-1 overflow-x-auto rounded-lg border bg-card p-1 shadow-card"
-        aria-label="Fulfilment workspaces"
-      >
-        {workflowLinks.map((item, index) => (
-          <Button
-            key={item.href}
-            asChild
-            variant={index === 0 ? "ink" : "ghost"}
-            size="sm"
-            className="shrink-0"
-          >
-            <Link href={item.href}>{item.label}</Link>
-          </Button>
-        ))}
-      </nav>
 
       <QueryState
         loading={query.isLoading}
@@ -258,7 +253,23 @@ export default function FulfilmentControlTowerPage() {
               ))}
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+            {overview ? (
+              <StageStrip
+                onSelect={(key) => router.push(key === "sourcing" ? "/dashboard/fulfilment" : ["inbound", "qc", "failed", "consolidate"].includes(key) ? "/dashboard/fulfilment/hub" : "/dashboard/fulfilment/shipments")}
+                stages={[
+                  { key: "sourcing", label: "Sourcing", count: overview.sourcing, tone: overview.blocked ? "danger" : "default" },
+                  { key: "inbound", label: "At hub", count: overview.inbound },
+                  { key: "qc", label: "Quality check", count: overview.awaitingQc },
+                  { key: "failed", label: "QC failed", count: overview.failed ?? 0, tone: overview.failed ? "danger" : "default" },
+                  { key: "consolidate", label: "Consolidate", count: overview.readyToConsolidate + overview.consolidating },
+                  { key: "book", label: "Ready to book", count: overview.readyToBook, tone: overview.readyToBook ? "warning" : "default" },
+                  { key: "transit", label: "In transit", count: overview.inTransit },
+                  { key: "exceptions", label: "Exceptions", count: overview.exceptions, tone: overview.exceptions ? "danger" : "default" },
+                ]}
+              />
+            ) : null}
+
+            <div className="grid gap-4">
               <Card className="gap-0 overflow-hidden rounded-lg py-0 shadow-card">
                 <CardHeader className="flex-row items-center justify-between border-b px-4 py-3">
                   <div>
@@ -266,81 +277,81 @@ export default function FulfilmentControlTowerPage() {
                       Market Associate tasks
                     </CardTitle>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Prioritized by operational SLA
+                      Blocked first, then longest waiting
                     </p>
                   </div>
                   <span className="text-xs tabular-nums text-muted-foreground">
-                    {data.tasks.length} active
+                    {blockedTaskCount ? (
+                      <span className="mr-2 font-semibold text-destructive">
+                        {blockedTaskCount} blocked
+                      </span>
+                    ) : null}
+                    {tasks.length} active
                   </span>
                 </CardHeader>
                 <CardContent className="p-0">
-                  {data.tasks.length ? (
-                    data.tasks.slice(0, 12).map((task) => {
+                  {tasks.length ? (
+                    tasks.slice(0, TASK_PREVIEW_LIMIT).map((task, index) => {
                       const taskId = identifier(task);
-                      const canReassign = ![
-                        "BLOCKED",
-                        "HUB_RECEIVED",
-                        "QC_PASSED",
-                      ].includes(task.status || "");
+                      const canReassign = !["BLOCKED", "HUB_RECEIVED", "QC_PASSED"].includes(task.status || "");
                       const marketAssociateName = task.marketAssociate?.name;
                       return (
-                        <div
+                        <ListRow
                           key={taskId}
-                          className="grid gap-3 border-b px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            {task.market?.imageUrl ? (
-                              <span className="relative size-10 shrink-0 overflow-hidden rounded-md">
-                                <Image src={task.market.imageUrl} alt="" fill className="object-cover" unoptimized />
-                              </span>
-                            ) : (
-                              <span className="grid size-10 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-                                <Box className="size-4" />
-                              </span>
-                            )}
-                            <div className="min-w-0">
-                              <div className="flex min-w-0 items-center gap-2">
-                                <Link
-                                  href={`/dashboard/fulfilment/tasks/${taskId}`}
-                                  className="truncate text-sm font-medium hover:underline"
-                                >
-                                  {task.market?.name || taskId}
+                          index={index + 1}
+                          initials={initialsOf(marketAssociateName || task.market?.name)}
+                          title={
+                            <Link
+                              href={`/dashboard/fulfilment/tasks/${taskId}`}
+                              className="truncate text-sm font-semibold text-zinc-950 hover:underline"
+                            >
+                              {task.market?.name || taskId}
+                            </Link>
+                          }
+                          subject={marketAssociateName || "Unassigned"}
+                          meta={
+                            task.status === "BLOCKED"
+                              ? [
+                                  task.issue?.summary || "Blocked",
+                                  supportEmail ? `Escalate: ${supportEmail}` : undefined,
+                                  taskAge(task.createdAt),
+                                ]
+                              : [task.hub?.name || "No Hub", taskAge(task.createdAt)]
+                          }
+                          actions={
+                            <>
+                              <StatusBadge status={task.status || "Unknown"} />
+                              {task.status === "BLOCKED" ? (
+                                <PermissionGuard permission="fulfilment.assign">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void unblock(task)}
+                                    disabled={pending === `unblock-${taskId}`}
+                                  >
+                                    {pending === `unblock-${taskId}` ? (
+                                      <HookLoader size="button" />
+                                    ) : (
+                                      "Unblock"
+                                    )}
+                                  </Button>
+                                </PermissionGuard>
+                              ) : null}
+                              {canReassign ? (
+                                <PermissionGuard permission="fulfilment.assign">
+                                  <Button variant="outline" size="sm" onClick={() => setSelectedTask(task)}>
+                                    Reassign
+                                  </Button>
+                                </PermissionGuard>
+                              ) : null}
+                              <Button asChild variant="outline" size="icon-sm">
+                                <Link href={`/dashboard/fulfilment/tasks/${taskId}`} aria-label={`View ${taskId}`}>
+                                  <ArrowRight />
                                 </Link>
-                                <StatusBadge status={task.status || "Unknown"} />
-                              </div>
-                              <div className="mt-1 flex min-w-0 items-center gap-1.5">
-                                <Avatar className="size-4">
-                                  <AvatarImage src={task.marketAssociate?.avatarUrl} alt="" />
-                                  <AvatarFallback className="text-[9px]">
-                                    {initials(marketAssociateName)}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {marketAssociateName || "Unassigned"} · {task.hub?.name || "No Hub"}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            {canReassign ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setSelectedTask(task)}
-                              >
-                                Reassign
                               </Button>
-                            ) : null}
-                            <Button asChild variant="ghost" size="icon-sm">
-                              <Link
-                                href={`/dashboard/fulfilment/tasks/${taskId}`}
-                                aria-label={`View ${taskId}`}
-                              >
-                                <ArrowRight />
-                              </Link>
-                            </Button>
-                          </div>
-                        </div>
+                            </>
+                          }
+                        />
                       );
                     })
                   ) : (
@@ -350,110 +361,15 @@ export default function FulfilmentControlTowerPage() {
                       emptyDescription="New approved orders will appear here automatically."
                     />
                   )}
-                </CardContent>
-              </Card>
-
-              <Card className="gap-0 overflow-hidden rounded-lg py-0 shadow-card">
-                <CardHeader className="flex-row items-center justify-between border-b px-4 py-3">
-                  <div>
-                    <CardTitle className="text-sm font-semibold">
-                      Operational exceptions
-                    </CardTitle>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Customer-impacting issues requiring review
-                    </p>
-                  </div>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {data.exceptions.length} open
-                  </span>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {data.exceptions.length ? (
-                    data.exceptions.slice(0, 10).map((item) => {
-                      const exceptionId = identifier(item);
-                      return (
-                        <div
-                          key={exceptionId}
-                          className="grid gap-3 border-b px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <p className="truncate text-sm font-medium">
-                                {item.summary || exceptionId}
-                              </p>
-                              <StatusBadge
-                                status={item.severity || "Unknown"}
-                              />
-                            </div>
-                            <p className="mt-1 truncate text-xs text-muted-foreground">
-                              {label(item.type)} ·{" "}
-                              {item.order?.publicId || "No order reference"}
-                            </p>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedException(item)}
-                          >
-                            <Check /> Resolve
-                          </Button>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <QueryState
-                      empty
-                      emptyTitle="No open exceptions"
-                      emptyDescription="Operations are currently clear."
-                    />
-                  )}
+                  {tasks.length > TASK_PREVIEW_LIMIT ? (
+                    <div className="border-t px-4 py-2.5 text-xs text-muted-foreground">
+                      Showing the {TASK_PREVIEW_LIMIT} most urgent of {tasks.length} tasks.
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              {[
-                {
-                  href: "/dashboard/fulfilment/hub",
-                  icon: ClipboardCheck,
-                  title: "Hub receiving",
-                  detail:
-                    "Receive packages and complete visible quality checks.",
-                },
-                {
-                  href: "/dashboard/fulfilment/shipments",
-                  icon: Truck,
-                  title: "Shipment operations",
-                  detail:
-                    "Book logistics and monitor controlled tracking updates.",
-                },
-                {
-                  href: "/dashboard/fulfilment/returns",
-                  icon: RotateCcw,
-                  title: "Returns and refunds",
-                  detail:
-                    "Review customer issues and eligible refund outcomes.",
-                },
-              ].map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="group flex items-start gap-3 rounded-lg border bg-card p-4 shadow-card transition-colors hover:bg-muted/40"
-                >
-                  <span className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground group-hover:text-foreground">
-                    <item.icon className="size-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1 text-sm font-medium text-foreground">
-                      {item.title} <ArrowRight className="size-3.5" />
-                    </span>
-                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                      {item.detail}
-                    </span>
-                  </span>
-                </Link>
-              ))}
-            </div>
           </>
         ) : null}
       </QueryState>
@@ -561,39 +477,6 @@ export default function FulfilmentControlTowerPage() {
           ) : null}
       </AdminWorkflowSheet>
 
-      <AdminWorkflowSheet
-        open={Boolean(selectedException)}
-        onOpenChange={(open) => {
-          if (!open && pending !== `exception-${identifier(selectedException)}`) setSelectedException(undefined);
-        }}
-        title="Resolve operational exception"
-        description={`Record the verified outcome for ${identifier(selectedException)}. This action is audited.`}
-        footer={(
-          <>
-            <Button variant="outline" onClick={() => setSelectedException(undefined)} disabled={pending === `exception-${identifier(selectedException)}`}>Cancel</Button>
-            <Button variant="ink" onClick={() => void resolveException()} disabled={pending === `exception-${identifier(selectedException)}`}>
-              {pending === `exception-${identifier(selectedException)}` ? <HookLoader size="button" variant="yellow" /> : "Resolve exception"}
-            </Button>
-          </>
-        )}
-      >
-          {selectedException ? (
-            <div className="space-y-2">
-              <Label htmlFor="exception-reason">Resolution note</Label>
-              <Textarea
-                id="exception-reason"
-                value={exceptionReasons[identifier(selectedException)] || ""}
-                onChange={(event) =>
-                  setExceptionReasons((current) => ({
-                    ...current,
-                    [identifier(selectedException)]: event.target.value,
-                  }))
-                }
-                placeholder="Describe the verified resolution"
-              />
-            </div>
-          ) : null}
-      </AdminWorkflowSheet>
     </div>
   );
 }

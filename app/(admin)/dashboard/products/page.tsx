@@ -13,7 +13,8 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { KpiCard } from "@/components/shared/KpiCard";
 import { ProductFilters } from "@/components/products/ProductFilters";
-import { ProductRow, ProductsTable } from "@/components/products/ProductsTable";
+import { ProductGrid } from "@/components/products/ProductGrid";
+import type { ProductRow } from "@/components/products/product-types";
 import { Button } from "@/components/ui/button";
 import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { useApiQuery } from "@/lib/query";
@@ -163,34 +164,32 @@ export default function ProductsPage() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-card">
-        <ProductFilters
-          search={search}
-          status={status}
-          categoryId={categoryId}
-          stock={stock}
-          categories={categories}
-          onSearchChange={(value) => setFilter("search", value)}
-          onStatusChange={(value) => setFilter("status", value)}
-          onCategoryChange={(value) => setFilter("categoryId", value)}
-          onStockChange={(value) => setFilter("stock", value)}
-          onClear={() =>
-            filters.set({
-              search: "",
-              status: "all",
-              categoryId: "all",
-              stock: "all",
-              page: 1,
-            })
-          }
-        />
+      <ProductFilters
+        search={search}
+        status={status}
+        categoryId={categoryId}
+        stock={stock}
+        categories={categories}
+        onSearchChange={(value) => setFilter("search", value)}
+        onStatusChange={(value) => setFilter("status", value)}
+        onCategoryChange={(value) => setFilter("categoryId", value)}
+        onStockChange={(value) => setFilter("stock", value)}
+        onClear={() =>
+          filters.set({
+            search: "",
+            status: "all",
+            categoryId: "all",
+            stock: "all",
+            page: 1,
+          })
+        }
+      />
 
-        <ProductsTable
-          queryKey={queryKey}
-          path={listPath}
-          onPageChange={(nextPage) => filters.set({ page: nextPage })}
-        />
-      </div>
+      <ProductGrid
+        queryKey={queryKey}
+        path={listPath}
+        onPageChange={(nextPage) => filters.set({ page: nextPage })}
+      />
     </div>
   );
 }

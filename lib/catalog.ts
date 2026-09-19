@@ -26,6 +26,8 @@ export interface ProductSubmission {
   categorySuggestionId: string;
   notes?: string;
   mediaIds: string[];
+  mediaViews?: { front?: string; side?: string; back?: string };
+  captureChecklistConfirmed?: boolean;
   basePriceMinor: number;
   currency: string;
   variants: Array<{ size?: string; colour?: string; attributes: Record<string, string>; active: boolean }>;
@@ -49,40 +51,8 @@ export interface ProductSubmission {
   media?: CatalogMedia[];
   market?: { publicId: string; name: string };
   category?: { publicId: string; name: string };
+  marketAssociate?: { publicId: string; name?: string } | null;
   version: number;
-  updatedAt: string;
-}
-
-export interface CommercialProduct {
-  id: string;
-  publicId: string;
-  title: string;
-  slug: string;
-  description?: string;
-  status: string;
-  catalogVersion: number;
-  images?: string[];
-  pricing?: {
-    basePriceMinor: number;
-    sellingPriceMinor: number;
-    discountMinor: number;
-    effectivePriceMinor: number;
-    markupMinor: number;
-    marginMinor: number;
-    marginPercentage: number;
-  };
-  negotiationRules?: {
-    enabled: boolean;
-    minimumNegotiablePriceMinor?: number;
-    maximumDiscountMinor?: number;
-    maximumCustomerOffers: number;
-    acceptedQuoteExpiryMinutes: number;
-  };
-  category?: { publicId: string; name: string };
-  market?: { publicId: string; name: string };
-  variants?: Array<{ publicId: string; size?: string; colour?: string; active: boolean }>;
-  media?: CatalogMedia[];
-  sourceStateId?: string;
   updatedAt: string;
 }
 

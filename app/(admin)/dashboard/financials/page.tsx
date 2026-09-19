@@ -127,7 +127,7 @@ export default function FinancialsPage() {
           </div>
 
           <div className="flex min-h-50 flex-1 items-end gap-2 overflow-x-auto border-b border-zinc-200 px-1 pt-6">
-            {!isLoading && trend.length === 0 && <div className="m-auto text-center"><p className="font-medium text-zinc-700">No settled payment activity</p><p className="mt-1 text-sm text-zinc-500">Verified OPay transactions for this period will appear here.</p></div>}
+            {!isLoading && trend.length === 0 && <div className="m-auto text-center"><p className="font-medium text-zinc-700">No settled payment activity</p><p className="mt-1 text-sm text-zinc-500">Verified Paystack transactions for this period will appear here.</p></div>}
             {trend.map((row) => <div key={row.label} className="flex h-full min-w-12 flex-1 flex-col justify-end gap-1 text-center" title={`${row.label}: ${money(row.volume)} volume, ${money(row.revenue)} revenue`}>
               <div className="mx-auto flex h-[85%] items-end gap-1">
                 <div className="w-3 rounded-t bg-zinc-800" style={{ height: `${Math.max(3, row.volume / trendMax * 100)}%` }} />

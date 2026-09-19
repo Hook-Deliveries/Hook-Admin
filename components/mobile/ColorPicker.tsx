@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
+import { colorName, colorSwatch, sameColor } from "@/lib/color-name";
 import { cn } from "@/lib/utils";
 
 /**
@@ -40,49 +41,17 @@ export const COLOR_OPTIONS: Array<{ name: string; swatch: string }> = [
 ];
 
 export function swatchFor(value: string) {
-  const match = COLOR_OPTIONS.find(
-    (option) => option.name.toLowerCase() === value.trim().toLowerCase(),
-  );
-  return match?.swatch;
+  return colorSwatch(value);
 }
 
 /**
  * Renders a stored variant colour for display. Submissions made through this
- * picker always store a name ("Black"), but older/imported data can carry a
- * raw hex code instead — this resolves that to the closest named colour so
- * customers and partners never see a bare "#111111" chip.
+ * picker store a name ("Black"), but older, imported or admin-entered data can
+ * carry a code such as "#111111". Codes are turned into everyday names
+ * (see lib/color-name.ts) so nobody sees a bare hex value.
  */
 export function displayColorName(value?: string) {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!/^#[0-9a-f]{3,8}$/i.test(trimmed)) return trimmed;
-
-  const target = hexToRgb(trimmed);
-  if (!target) return trimmed;
-
-  let closest: { name: string; distance: number } | undefined;
-  for (const option of COLOR_OPTIONS) {
-    const swatchRgb = hexToRgb(option.swatch);
-    if (!swatchRgb) continue;
-    const distance =
-      (swatchRgb.r - target.r) ** 2 + (swatchRgb.g - target.g) ** 2 + (swatchRgb.b - target.b) ** 2;
-    if (!closest || distance < closest.distance) closest = { name: option.name, distance };
-  }
-  return closest?.name || trimmed;
-}
-
-function hexToRgb(hex: string) {
-  const normalized = hex.replace("#", "");
-  const full =
-    normalized.length === 3
-      ? normalized.split("").map((char) => char + char).join("")
-      : normalized;
-  if (full.length < 6) return undefined;
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  if ([r, g, b].some(Number.isNaN)) return undefined;
-  return { r, g, b };
+  return colorName(value);
 }
 
 export function ColorPicker({
@@ -121,7 +90,7 @@ export function ColorPicker({
             <Palette className="size-4 shrink-0 text-muted-foreground" />
           )}
           <span className={cn("flex-1 truncate", !value && "text-muted-foreground")}>
-            {value || placeholder}
+            {value ? colorName(value) : placeholder}
           </span>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
         </button>
@@ -129,7 +98,7 @@ export function ColorPicker({
       <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-3">
         <div className="grid grid-cols-4 gap-2">
           {COLOR_OPTIONS.map((option) => {
-            const selected = option.name.toLowerCase() === value.trim().toLowerCase();
+            const selected = sameColor(value, option.name);
             return (
               <button
                 key={option.name}

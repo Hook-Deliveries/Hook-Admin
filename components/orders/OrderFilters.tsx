@@ -16,6 +16,7 @@ import { ChevronDown, ListFilter, ReceiptText, X } from "lucide-react";
 const STATUS_OPTIONS = [
   { label: "All orders", value: "all" },
   { label: "Active orders", value: "active" },
+  { label: "Completed orders", value: "completed" },
   { label: "Pending", value: "pending" },
   { label: "Confirmed", value: "confirmed" },
   { label: "Shipped", value: "shipped" },
@@ -30,6 +31,17 @@ const PAYMENT_OPTIONS = [
   { label: "Successful", value: "successful" },
   { label: "Failed", value: "failed" },
   { label: "Refunded", value: "refunded" },
+];
+
+/**
+ * The coarse view switch from the design. "Completed" covers every terminal
+ * state, not just delivered, so a cancelled or refunded order does not vanish
+ * from both tabs.
+ */
+const VIEW_TABS = [
+  { label: "All", value: "all" },
+  { label: "Active", value: "active" },
+  { label: "Completed", value: "completed" },
 ];
 
 interface OrderFiltersProps {
@@ -58,6 +70,23 @@ export function OrderFilters({
   return (
     <div className="flex flex-col gap-3 border-b border-zinc-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="inline-flex shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+          {VIEW_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => onStatusChange(tab.value)}
+              aria-pressed={status === tab.value}
+              className={
+                status === tab.value
+                  ? "rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-zinc-900 shadow-sm"
+                  : "rounded-md px-3 py-1.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900"
+              }
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <SearchInput
           placeholder="Search by ID, customer..."
           className="w-full sm:w-64 lg:w-72"

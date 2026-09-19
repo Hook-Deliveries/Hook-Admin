@@ -1,13 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { ChevronRight, MapPin, Plus, Store } from "lucide-react";
 import { HookLoader } from "@/components/shared/HookLoader";
 import { QueryState } from "@/components/shared/QueryState";
 import { MobileHeader } from "@/components/mobile/MobileUI";
 import { useApiQuery } from "@/lib/query";
-import { MarketVendorSheet } from "@/components/market-associate/MarketVendorSheet";
 import { MarketImage } from "@/components/markets/MarketImage";
 
 type Market = {
@@ -29,7 +27,6 @@ function marketId(market: Market) {
 
 export function MarketAssociateMarketsWorkspace() {
   const query = useApiQuery<MarketsResponse>(["marketassociate", "markets"], "/market-associate/markets");
-  const [vendorMarket, setVendorMarket] = useState<Market | null>(null);
   const markets = query.data?.markets || [];
 
   if (query.isLoading)
@@ -83,28 +80,17 @@ export function MarketAssociateMarketsWorkspace() {
                     <ChevronRight size={18} className="shrink-0 text-[#A3A3A6]" />
                   </div>
                 </Link>
-                <button
-                  type="button"
-                  onClick={() => setVendorMarket(market)}
+                <Link
+                  href={`/market-associate/markets/${marketId(market)}/vendors/new`}
                   className="flex w-full items-center justify-center gap-2 border-t border-[#D9D9D9] py-3.5 text-[14px] font-semibold text-[#9a7400] transition active:bg-black/3"
                 >
                   <Plus size={16} /> Onboard a supplier
-                </button>
+                </Link>
               </div>
             );
           })}
         </div>
       </QueryState>
-
-      {vendorMarket && (
-        <MarketVendorSheet
-          marketId={marketId(vendorMarket)}
-          marketName={vendorMarket.name}
-          open={Boolean(vendorMarket)}
-          onClose={() => setVendorMarket(null)}
-          onSuccess={() => void query.refetch()}
-        />
-      )}
     </div>
   );
 }

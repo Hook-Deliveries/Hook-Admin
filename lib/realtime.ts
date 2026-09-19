@@ -11,44 +11,95 @@ function socketBaseUrl() {
   return API_BASE.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
 }
 
+const NOTIFICATION_KEYS = [
+  ["notifications"],
+  ["marketassociate", "notifications"],
+  ["partner", "notifications"],
+] as const;
+
+/**
+ * Catalog movement reaches every portal: Admin reviews it, Market Associates
+ * capture and confirm against it, Partners browse and price from it.
+ */
+const CATALOG_KEYS = [
+  ["admin", "products"],
+  ["admin", "categories"],
+  ["admin", "product-category-options"],
+  ["admin", "markets"],
+  ["admin", "market"],
+  ["admin", "product-submissions"],
+  ["products"],
+  ["home-content"],
+  ["markets"],
+  ["marketassociate", "availability-checks"],
+  ["marketassociate", "markets"],
+  ["marketassociate", "market"],
+  ["marketassociate", "market-vendors"],
+  ["marketassociate", "market-vendor"],
+  ["marketassociate", "submissions"],
+  ["marketassociate", "submission"],
+  ["marketassociate", "catalog-dashboard"],
+  ["partner", "discover"],
+  ["partner", "product"],
+  ["partner", "commerce-config"],
+] as const;
+
+/** Orders move custody and fulfilment state in both self-service portals. */
+const ORDER_KEYS = [
+  ["admin", "orders"],
+  ["admin", "recent-orders"],
+  ["admin", "dashboard"],
+  ["admin", "sidebar-summary"],
+  ["orders"],
+  ["marketassociate", "fulfilments"],
+  ["marketassociate", "fulfilment"],
+  ["marketassociate", "catalog-dashboard"],
+  ["partner", "orders"],
+  ["partner", "custody"],
+] as const;
+
+/** Basket and negotiation state, which drive the Partner checkout flow. */
+const CART_KEYS = [
+  ["partner", "basket"],
+  ["partner", "negotiations"],
+  ["partner", "negotiation"],
+] as const;
+
+function invalidateAll(
+  queryClient: QueryClient,
+  keys: readonly (readonly string[])[],
+) {
+  for (const queryKey of keys) queryClient.invalidateQueries({ queryKey });
+}
+
 function invalidateForEvent(queryClient: QueryClient, event: string) {
   if (event === "realtime.connected") {
-    queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "sidebar-summary"] });
-    queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    queryClient.invalidateQueries({ queryKey: ["marketassociate", "notifications"] });
-    queryClient.invalidateQueries({ queryKey: ["partner", "notifications"] });
+    // Anything could have changed while the socket was down, so resync every
+    // surface rather than guessing which ones drifted.
+    invalidateAll(queryClient, [
+      ...NOTIFICATION_KEYS,
+      ...CATALOG_KEYS,
+      ...ORDER_KEYS,
+      ...CART_KEYS,
+    ]);
     return;
   }
   if (event === "home.updated" || event === "catalog.updated") {
-    queryClient.invalidateQueries({ queryKey: ["admin", "products"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "product-category-options"] });
-    queryClient.invalidateQueries({ queryKey: ["products"] });
-    queryClient.invalidateQueries({ queryKey: ["home-content"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "markets"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "market"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "commercial"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "catalog-review"] });
-    queryClient.invalidateQueries({ queryKey: ["marketassociate", "availability-checks"] });
-    queryClient.invalidateQueries({ queryKey: ["marketassociate", "markets"] });
-    queryClient.invalidateQueries({ queryKey: ["markets"] });
+    invalidateAll(queryClient, CATALOG_KEYS);
   }
   if (event === "notification.created" || event === "notification.updated") {
-    queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    queryClient.invalidateQueries({ queryKey: ["marketassociate", "notifications"] });
-    queryClient.invalidateQueries({ queryKey: ["partner", "notifications"] });
+    invalidateAll(queryClient, NOTIFICATION_KEYS);
   }
+  if (event === 'app-release.updated') queryClient.invalidateQueries({ queryKey: ['admin', 'app-releases'] });
+  if (event === 'negotiation.messages' || event === 'negotiation.updated') queryClient.invalidateQueries({ queryKey: ['admin', 'negotiations'] });
   if (event === "order.updated") {
-    queryClient.invalidateQueries({ queryKey: ["admin", "orders"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "recent-orders"] });
-    queryClient.invalidateQueries({ queryKey: ["orders"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
-    queryClient.invalidateQueries({ queryKey: ["admin", "sidebar-summary"] });
+    invalidateAll(queryClient, ORDER_KEYS);
+  }
+  if (event === "cart.updated") {
+    invalidateAll(queryClient, CART_KEYS);
   }
   if (event === "admin.dashboard.updated" || event === "admin.operations.updated") {
-    queryClient.invalidateQueries({ queryKey: ["admin"] });
-    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    invalidateAll(queryClient, [["admin"], ["dashboard"]]);
   }
 }
 

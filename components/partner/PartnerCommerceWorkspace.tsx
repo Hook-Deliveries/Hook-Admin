@@ -69,6 +69,8 @@ type CheckoutPreview = {
   totalMinor: number;
   subtotalMinor: number;
   deliveryFeeMinor: number;
+  couponDiscountMinor?: number;
+  coupon?: { code: string; type: string; discountMinor: number };
   expiresAt: string;
 };
 
@@ -133,6 +135,9 @@ export function PartnerCommerceWorkspace({
   const [busy, setBusy] = useState(false);
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [checkoutPreview, setCheckoutPreview] = useState<CheckoutPreview | null>(null);
+  const [checkoutGroup, setCheckoutGroup] = useState<StateGroup | null>(null);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponInput, setCouponInput] = useState("");
   const [checkoutStateId, setCheckoutStateId] = useState<string | null>(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [form, setForm] = useState({
@@ -215,7 +220,7 @@ export function PartnerCommerceWorkspace({
     }
   }
 
-  async function prepareCheckout(group: StateGroup) {
+  async function prepareCheckout(group: StateGroup, code = couponCode) {
     if (!selectedCustomer) return;
     const policyVersions = config.data?.policyVersions || {};
     if (!policyVersions.TERMS || !policyVersions.PRIVACY || !policyVersions.RETURNS) {
@@ -226,10 +231,17 @@ export function PartnerCommerceWorkspace({
     try {
       const preview = await apiPost<CheckoutPreview>(
         `/partner/customers/${selectedCustomer.publicId}/checkout/states/${group.stateId}/preview`,
-        { deliveryMethod: "PARTNER_PICKUP", paymentMethod: "PREPAID", policyVersions },
+        {
+          deliveryMethod: "PARTNER_PICKUP",
+          paymentMethod: "PREPAID",
+          policyVersions,
+          ...(code.trim() ? { couponCode: code.trim().toUpperCase() } : {}),
+        },
       );
       setCheckoutStateId(group.stateId);
       setCheckoutPreview(preview);
+      setCheckoutGroup(group);
+      if (code.trim() && preview.coupon) toast.success(`Coupon ${preview.coupon.code} applied`);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "Checkout could not start",
@@ -237,6 +249,21 @@ export function PartnerCommerceWorkspace({
     } finally {
       setCheckoutBusy(false);
     }
+  }
+
+  function closeCheckout() {
+    setCheckoutPreview(null);
+    setCheckoutStateId(null);
+    setCheckoutGroup(null);
+    setCouponCode("");
+    setCouponInput("");
+  }
+
+  /** Re-prices the open preview with (or without) a coupon. */
+  async function applyCouponToCheckout(code: string) {
+    if (!checkoutGroup) return;
+    setCouponCode(code);
+    await prepareCheckout(checkoutGroup, code);
   }
 
   async function confirmCheckout() {
@@ -254,8 +281,7 @@ export function PartnerCommerceWorkspace({
       const orderId = String(order.publicId || order.id || "");
       const payment = await apiPost<Row>(`/partner/orders/${orderId}/payment-instructions`);
       const authorizationUrl = String(payment.authorizationUrl || "");
-      setCheckoutPreview(null);
-      setCheckoutStateId(null);
+      closeCheckout();
       await queryClient.invalidateQueries({ queryKey: ["partner", "basket"] });
       await queryClient.invalidateQueries({ queryKey: ["partner", "orders"] });
       if (authorizationUrl) window.open(authorizationUrl, "_blank", "noopener,noreferrer");
@@ -467,7 +493,7 @@ export function PartnerCommerceWorkspace({
 
         <Dialog
           open={Boolean(checkoutPreview)}
-          onOpenChange={(open) => !open && !checkoutBusy && setCheckoutPreview(null)}
+          onOpenChange={(open) => { if (!open && !checkoutBusy) closeCheckout(); }}
         >
           <DialogContent>
             <DialogHeader>
@@ -480,26 +506,71 @@ export function PartnerCommerceWorkspace({
               </DialogDescription>
             </DialogHeader>
             {checkoutPreview && (
-              <div className="space-y-2 rounded-[10px] bg-[#F5F5F5] p-4 text-sm">
-                <div className="flex justify-between text-[#8F8F8F]">
-                  <span>Products</span>
-                  <span>{money(checkoutPreview.subtotalMinor)}</span>
+              <>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-[#111]" htmlFor="partner-coupon">
+                    Coupon code
+                  </label>
+                  {checkoutPreview.coupon ? (
+                    <div className="flex items-center justify-between rounded-[10px] border border-[#FFC809] bg-[#fff9e5] px-3 py-2 text-sm">
+                      <span className="font-mono font-semibold">{checkoutPreview.coupon.code}</span>
+                      <MobileButton
+                        variant="outline"
+                        disabled={checkoutBusy}
+                        onClick={() => {
+                          setCouponInput("");
+                          void applyCouponToCheckout("");
+                        }}
+                      >
+                        Remove
+                      </MobileButton>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Input
+                        id="partner-coupon"
+                        value={couponInput}
+                        onChange={(event) => setCouponInput(event.target.value.toUpperCase())}
+                        placeholder="Enter a coupon code"
+                        disabled={checkoutBusy}
+                      />
+                      <MobileButton
+                        variant="outline"
+                        disabled={checkoutBusy || !couponInput.trim()}
+                        onClick={() => void applyCouponToCheckout(couponInput)}
+                      >
+                        Apply
+                      </MobileButton>
+                    </div>
+                  )}
                 </div>
-                <div className="flex justify-between text-[#8F8F8F]">
-                  <span>Pickup fee</span>
-                  <span>{money(checkoutPreview.deliveryFeeMinor)}</span>
+                <div className="space-y-2 rounded-[10px] bg-[#F5F5F5] p-4 text-sm">
+                  <div className="flex justify-between text-[#8F8F8F]">
+                    <span>Products</span>
+                    <span>{money(checkoutPreview.subtotalMinor)}</span>
+                  </div>
+                  {Number(checkoutPreview.couponDiscountMinor || 0) > 0 && (
+                    <div className="flex justify-between text-[#8F8F8F]">
+                      <span>Coupon{checkoutPreview.coupon ? ` (${checkoutPreview.coupon.code})` : ""}</span>
+                      <span>-{money(Number(checkoutPreview.couponDiscountMinor))}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-[#8F8F8F]">
+                    <span>Pickup fee</span>
+                    <span>{money(checkoutPreview.deliveryFeeMinor)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 text-base font-bold">
+                    <span>Total</span>
+                    <span>{money(checkoutPreview.totalMinor)}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between border-t pt-2 text-base font-bold">
-                  <span>Total</span>
-                  <span>{money(checkoutPreview.totalMinor)}</span>
-                </div>
-              </div>
+              </>
             )}
             <DialogFooter>
               <MobileButton
                 variant="outline"
                 disabled={checkoutBusy}
-                onClick={() => setCheckoutPreview(null)}
+                onClick={closeCheckout}
               >
                 Cancel
               </MobileButton>

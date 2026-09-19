@@ -2,22 +2,33 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { AtSign, Eye, EyeOff, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { LockKeyhole, Mail, ShieldCheck } from "lucide-react";
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { AuthCard } from "@/components/auth/AuthCard";
+import { HookLoader } from "@/components/shared/HookLoader";
 import { useAccountLogin } from "@/lib/query";
 import type { AuthSession } from "@/lib/api";
-import { HookLoader } from "@/components/shared/HookLoader";
-import { HookLogo } from "@/components/shared/HookLogo";
 
 interface LoginFormProps {
   onSuccess: (session: AuthSession) => void;
 }
 
 export function LoginForm({ onSuccess }: LoginFormProps) {
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const login = useAccountLogin();
+  const [showPassword, setShowPassword] = useState(false);
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [values, setValues] = useState({
     email: "",
     password: "",
@@ -48,72 +59,81 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md scroll-mb-[40vh] rounded-xl border border-zinc-200 bg-white px-6 py-8 shadow-card sm:px-10 sm:py-10">
-      <div className="mb-8 text-center">
-        <HookLogo className="justify-center text-4xl" />
-        <div className="mx-auto mt-6 flex size-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-800">
-          <ShieldCheck size={26} />
-        </div>
-        <h1 className="mt-5 text-2xl font-semibold tracking-tight text-zinc-950">
-          Welcome back
-        </h1>
-        <p className="mx-auto mt-2 max-w-xs text-sm leading-6 text-zinc-500">
-          One secure sign-in for staff, Market Associates, and Hook Partners.
-        </p>
-      </div>
+    <AuthCard
+      title="Welcome back"
+      description="One secure sign-in for staff, Market Associates, and Hook Partners."
+    >
+      <form onSubmit={onSubmit} noValidate>
+        <FieldGroup>
+          <Field data-invalid={errors.email ? true : undefined}>
+            <FieldLabel htmlFor="email">Email</FieldLabel>
+            <InputGroup>
+              <InputGroupInput
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@hook.com"
+                aria-invalid={errors.email ? true : undefined}
+                value={values.email}
+                onChange={(event) =>
+                  setValues((current) => ({ ...current, email: event.target.value }))
+                }
+              />
+              <InputGroupAddon align="inline-start">
+                <AtSign />
+              </InputGroupAddon>
+            </InputGroup>
+            {errors.email && <FieldError>{errors.email}</FieldError>}
+          </Field>
 
-      <form onSubmit={onSubmit} className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="email" className="text-sm font-medium text-zinc-700">
-            Email
-          </Label>
-          <div className="relative">
-            <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
-            <Input
-              id="email"
-              type="email"
-              value={values.email}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, email: event.target.value }))
-              }
-              className="bg-white pl-9 focus:border-brand-gold focus:ring-brand-gold/20"
-            />
-          </div>
-          {errors.email && <p className="text-xs text-red-500">{errors.email}</p>}
-        </div>
+          <Field data-invalid={errors.password ? true : undefined}>
+            <div className="flex items-center justify-between gap-2">
+              <FieldLabel htmlFor="password">Password</FieldLabel>
+              <Link
+                href={`/forgot-password?email=${encodeURIComponent(values.email)}`}
+                className="text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+            <InputGroup>
+              <InputGroupInput
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                placeholder="••••••••"
+                aria-invalid={errors.password ? true : undefined}
+                value={values.password}
+                onChange={(event) =>
+                  setValues((current) => ({ ...current, password: event.target.value }))
+                }
+              />
+              <InputGroupAddon align="inline-start">
+                <LockKeyhole />
+              </InputGroupAddon>
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((current) => !current)}
+                >
+                  {showPassword ? <EyeOff /> : <Eye />}
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+            {errors.password && <FieldError>{errors.password}</FieldError>}
+          </Field>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="password" className="text-sm font-medium text-zinc-700">
-            Password
-          </Label>
-          <div className="relative">
-            <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
-            <Input
-              id="password"
-              type="password"
-              value={values.password}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, password: event.target.value }))
-              }
-              className="bg-white pl-9 focus:border-brand-gold focus:ring-brand-gold/20"
-            />
-          </div>
-          {errors.password && <p className="text-xs text-red-500">{errors.password}</p>}
-        </div>
-
-        <div className="flex justify-end">
-          <Link
-            href={`/forgot-password?email=${encodeURIComponent(values.email)}`}
-            className="text-xs font-semibold text-zinc-700 underline-offset-4 hover:text-zinc-950 hover:underline"
-          >
-            Forgot password?
-          </Link>
-        </div>
-
-        <Button type="submit" variant="brand" disabled={login.isPending} className="mt-2 w-full">
-          {login.isPending ? <HookLoader size="button" label="Signing in..." /> : "Sign In"}
-        </Button>
+          <Field>
+            <Button type="submit" variant="brand" disabled={login.isPending}>
+              {login.isPending ? (
+                <HookLoader size="button" label="Signing in..." />
+              ) : (
+                "Sign in"
+              )}
+            </Button>
+          </Field>
+        </FieldGroup>
       </form>
-    </div>
+    </AuthCard>
   );
 }

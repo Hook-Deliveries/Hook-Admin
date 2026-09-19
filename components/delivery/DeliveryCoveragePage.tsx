@@ -398,28 +398,6 @@ export function DeliveryCoveragePage() {
       <PageHeader
         title="Delivery States & Fees"
         description="Control where customers can receive Hook orders and how delivery fees are calculated. Market sourcing is managed separately."
-        actions={
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!canManageCoverage || refreshingCatalog}
-              onClick={() => void refreshCatalog()}
-            >
-              {refreshingCatalog ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Database className="size-4" />
-              )}
-              Refresh locations
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
-              <RefreshCw className="size-4" />
-              Refresh
-            </Button>
-          </>
-        }
       />
 
       <section className="overflow-hidden rounded-2xl border bg-card shadow-xs">
@@ -482,15 +460,35 @@ export function DeliveryCoveragePage() {
       </div>
 
       <Tabs defaultValue="coverage" className="gap-5">
-        <div className="flex flex-col gap-3 border-b border-border/70 pb-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-foreground">Delivery workspace</p>
-            <p className="mt-1 text-xs text-muted-foreground">Manage coverage first, then configure the fee rules used at checkout.</p>
-          </div>
-          <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="coverage" className="gap-2 px-4"><MapPin className="size-4" /> Coverage</TabsTrigger>
-            <TabsTrigger value="pricing" className="gap-2 px-4"><SlidersHorizontal className="size-4" /> Pricing</TabsTrigger>
+        <div className="flex flex-col gap-3 border-b border-border/70 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <TabsList>
+            <TabsTrigger value="coverage">
+              <MapPin data-icon="inline-start" /> Coverage
+            </TabsTrigger>
+            <TabsTrigger value="pricing">
+              <SlidersHorizontal data-icon="inline-start" /> Pricing
+            </TabsTrigger>
           </TabsList>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canManageCoverage || refreshingCatalog}
+              onClick={() => void refreshCatalog()}
+            >
+              {refreshingCatalog ? (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <Database data-icon="inline-start" />
+              )}
+              Refresh locations
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
+              <RefreshCw data-icon="inline-start" />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <TabsContent value="coverage" className="mt-0 space-y-6">

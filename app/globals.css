@@ -63,6 +63,11 @@
 }
 
 :root {
+  /* iOS/Android safe-area insets — resolve to 0 in a normal browser tab and
+     to real values only in standalone/installed PWA mode, once viewport-fit
+     is set to "cover" (see app/layout.tsx's viewport export). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --background: oklch(0.967 0.002 247);
   --foreground: oklch(0.145 0.004 286);
   --card: oklch(1 0 0);
@@ -152,6 +157,13 @@
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
 }
 
@@ -218,5 +230,27 @@
 @media (prefers-reduced-motion: reduce) {
   .loader {
     animation-duration: 2s;
+  }
+}
+
+/* Alert marquee — the "changes requested" ticker at the top of the Market
+   Associate portal. Two copies of the content sit side by side and the pair
+   translates left by exactly half its own width, so the loop is seamless. */
+@keyframes hook-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.hook-marquee-track {
+  animation: hook-marquee 14s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hook-marquee-track {
+    animation-duration: 34s;
   }
 }

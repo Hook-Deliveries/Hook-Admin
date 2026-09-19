@@ -3,8 +3,9 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { HookLoader } from "@/components/shared/HookLoader";
+import { MaintenanceScreen } from "@/components/shared/MaintenanceScreen";
 import { dashboardPath } from "@/lib/auth-routing";
-import { useAccountSession } from "@/lib/query";
+import { useAccountSession, useBackendHealth } from "@/lib/query";
 
 export function PortalGuard({
   type,
@@ -15,7 +16,8 @@ export function PortalGuard({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const session = useAccountSession();
+  const health = useBackendHealth();
+  const session = useAccountSession(health.data !== false);
   const valid = session.data?.accountType === type;
 
   useEffect(() => {
@@ -26,7 +28,9 @@ export function PortalGuard({
     }
   }, [pathname, router, session.data, session.isError, session.isSuccess, type, valid]);
 
-  if (session.isLoading || session.isPending) {
+  if (health.data === false) return <MaintenanceScreen />;
+
+  if (health.isLoading || session.isLoading || session.isPending) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <HookLoader size="page" label={`Checking ${type} session...`} />

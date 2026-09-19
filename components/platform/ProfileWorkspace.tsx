@@ -40,6 +40,9 @@ import {
   MobileRow,
   MobileSection,
 } from "@/components/mobile/MobileUI";
+import { ACTION_BAR_BUTTON, StickyActionBar } from "@/components/mobile/StickyActionBar";
+import { APP_ACTION_BAR_CONTENT_INSET } from "@/lib/tab-bar-layout";
+import { cn } from "@/lib/utils";
 import { useApiQuery } from "@/lib/query";
 import { apiPatch, apiPost, apiRequest, clearSession, logoutAccount } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
@@ -416,7 +419,7 @@ export function ProfileEditWorkspace({ type }: { type: "marketassociate" | "part
   }
 
   return (
-    <div>
+    <div style={{ paddingBottom: APP_ACTION_BAR_CONTENT_INSET }}>
       <MobileHeader title="Edit profile" subtitle="Update how Hook reaches you." />
 
       <div className="mb-7 flex flex-col items-center">
@@ -484,14 +487,22 @@ export function ProfileEditWorkspace({ type }: { type: "marketassociate" | "part
         </div>
       </MobileSection>
 
-      <MobileButton onClick={() => void save()} disabled={saving || uploading}>
-        {saving ? <HookLoader size="button" /> : "Save changes"}
-      </MobileButton>
-      <div className="mt-3">
-        <MobileButton variant="outline" href={`${base}/profile`}>
+      <StickyActionBar>
+        <MobileButton
+          variant="outline"
+          href={`${base}/profile`}
+          className={cn(ACTION_BAR_BUTTON, "w-auto shrink-0 border-0 px-4")}
+        >
           Cancel
         </MobileButton>
-      </div>
+        <MobileButton
+          onClick={() => void save()}
+          disabled={saving || uploading}
+          className={cn(ACTION_BAR_BUTTON, "flex-1")}
+        >
+          {saving ? <HookLoader size="button" /> : "Save changes"}
+        </MobileButton>
+      </StickyActionBar>
     </div>
   );
 }

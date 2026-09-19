@@ -12,8 +12,10 @@ import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/lib/query";
 import { apiPatch } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from 'next/navigation';
 
 interface NotificationItem {
+  data?: { href?: string; negotiationId?: string };
   id: string;
   title?: string;
   body?: string;
@@ -59,6 +61,7 @@ const NOTIFICATIONS_PATH_PREFIX: Record<string, string> = {
 };
 
 export function NotificationBell({ scope }: { scope: "admin" | "marketassociate" | "partner" }) {
+  const router = useRouter();
   const endpoint = `/${NOTIFICATIONS_PATH_PREFIX[scope]}/notifications`;
   const queryKey = scope === "admin" ? (["notifications"] as const) : ([scope, "notifications"] as const);
   const queryClient = useQueryClient();
@@ -128,7 +131,10 @@ export function NotificationBell({ scope }: { scope: "admin" | "marketassociate"
               <button
                 key={notification.id}
                 type="button"
-                onClick={() => !notification.isRead && void markRead(notification.id)}
+                onClick={() => {
+                  if (!notification.isRead) void markRead(notification.id);
+                  if (scope === 'admin' && notification.type === 'negotiation_started' && notification.data?.negotiationId) router.push(`/dashboard/ai-negotiation/${encodeURIComponent(notification.data.negotiationId)}`);
+                }}
                 className={`flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition ${notification.isRead ? "opacity-60" : "bg-amber-50/60 hover:bg-amber-50"}`}
               >
                 <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-[#FFF3CC]">

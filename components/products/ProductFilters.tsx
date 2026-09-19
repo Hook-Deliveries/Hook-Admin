@@ -3,6 +3,7 @@
 import { AlertTriangle, ChevronDown, PackageCheck, Tags, X } from "lucide-react";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,7 +70,7 @@ export function ProductFilters({
   const stockLabel = STOCK_OPTIONS.find((option) => option.value === stock)?.label || "All stock";
 
   return (
-    <div className="flex flex-col gap-3 border-b border-zinc-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+    <Card className="flex flex-col gap-3 rounded-xl p-3 shadow-none lg:flex-row lg:items-center lg:justify-between">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
         <SearchInput
           placeholder="Search products..."
@@ -159,6 +160,6 @@ export function ProductFilters({
           Clear
         </Button>
       )}
-    </div>
+    </Card>
   );
 }

@@ -1,15 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Image from "next/image";
-import { CheckCircle2, PackageCheck, PackageX, ShieldCheck, Truck } from "lucide-react";
+import { Eye, PackageCheck, Printer, ShieldCheck, Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { HANDOVER_CODE_LENGTH, HandoverCodeInput } from "@/components/fulfilment/HandoverCodeInput";
 import { HookLoader } from "@/components/shared/HookLoader";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PackageReviewSheet, type FailureDraft } from "@/components/fulfilment/PackageReviewSheet";
+import { ReceiptPrintDialog } from "@/components/fulfilment/ReceiptPrintDialog";
+import { StageStrip } from "@/components/fulfilment/StageStrip";
+import { QueryState } from "@/components/shared/QueryState";
+import { ListRow, initialsOf } from "@/components/shared/ListRow";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { apiPost } from "@/lib/api";
 import { useApiQuery } from "@/lib/query";
 
@@ -38,6 +45,8 @@ type PackageRow = InboundRow & {
   version?: number;
   itemIds?: string[];
   items?: PackageItemRow[];
+  qualityChecks?: Array<{ orderItemId?: string; result?: string; reason?: string; note?: string; resolutionId?: string }>;
+  marketAssociate?: { name?: string } | null;
 };
 
 type ConsolidationRow = {
@@ -55,29 +64,75 @@ type ConsolidationRow = {
 type HubData = {
   inbound: InboundRow[];
   packages: PackageRow[];
-  exceptions: InboundRow[];
   consolidations: ConsolidationRow[];
 };
 
+// A failed package is "on hold" until it is sent back to the Market Associate.
+const isOnHold = (item: { status?: string; qualityChecks?: Array<{ result?: string; resourced?: boolean }> }) =>
+  item.status === "QC_FAILED" &&
+  (!item.qualityChecks?.length || item.qualityChecks.some((check) => check.result === "failed" && !check.resourced));
+
 const label = (value?: string) => String(value || "-").replaceAll("_", " ");
 
+type HubOption = { publicId?: string; id?: string; name?: string };
+
 export default function FulfilmentHubPage() {
-  const query = useApiQuery<HubData>(["admin", "fulfilment", "hub"], "/admin/fulfilment/hub");
+  // Staff attached to one hub see theirs automatically; this filter only
+  // matters for someone who can see several, who otherwise got every hub's
+  // work merged into one list with no way to narrow.
+  const [hubId, setHubId] = useState<string>("all");
+  const [stage, setStage] = useState<"inbound" | "qc" | "failed" | "consolidate">("inbound");
+  const hubsQuery = useApiQuery<{ data?: HubOption[] } | HubOption[]>(
+    ["admin", "fulfilment", "hubs"],
+    "/admin/fulfilment/hubs?limit=100",
+  );
+  const hubOptions = useMemo(() => {
+    const raw = hubsQuery.data;
+    return (Array.isArray(raw) ? raw : raw?.data || []) as HubOption[];
+  }, [hubsQuery.data]);
+
+  const query = useApiQuery<HubData>(
+    ["admin", "fulfilment", "hub", hubId],
+    `/admin/fulfilment/hub${hubId !== "all" ? `?hubId=${encodeURIComponent(hubId)}` : ""}`,
+  );
   const [credential, setCredential] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<string>();
+  const [reviewId, setReviewId] = useState<string>();
+  const [receiptOrder, setReceiptOrder] = useState<string>();
+  const [failureDrafts, setFailureDrafts] = useState<Record<string, FailureDraft>>({});
   const [confirmedItems, setConfirmedItems] = useState<Record<string, boolean>>({});
 
-  async function receive(item: InboundRow) {
+  // Per package: what was typed, and what the last attempt told us.
+  const [codeNotice, setCodeNotice] = useState<Record<string, { message: string; locked?: boolean }>>({});
+
+  async function receive(item: InboundRow, typed?: string) {
     const id = item.publicId || item.id || item._id;
-    if (!id || !item.hubId || credential[id]?.length !== 6) return;
+    const code = typed ?? (id ? credential[id] : "");
+    if (!id || !item.hubId || code?.length !== HANDOVER_CODE_LENGTH || pending === id) return;
     setPending(id);
+    setCodeNotice((current) => ({ ...current, [id]: { message: "" } }));
     try {
       await apiPost(`/admin/fulfilment/packages/${id}/receive`, {
         hubId: item.hubId,
-        scanCredential: credential[id],
+        scanCredential: code,
         idempotencyKey: `hub-receive-${id}`,
       });
+      toast.success(`Package ${id} received. It now needs a quality check.`);
+      setCredential((current) => ({ ...current, [id]: "" }));
       await query.refetch();
+    } catch (error) {
+      // A wrong code, a lockout, or a network problem must all be visible: the
+      // Hub cannot act on a button that silently does nothing.
+      const failure = error as Error & { status?: number; details?: { attemptsRemaining?: number } };
+      const locked = failure.status === 423 || /locked/i.test(failure.message);
+      const remaining = failure.details?.attemptsRemaining;
+      const message = locked
+        ? "This package is locked after too many wrong codes. Ask an administrator to review it."
+        : /invalid package handover code/i.test(failure.message)
+          ? `That code does not match this package.${typeof remaining === "number" ? ` ${remaining} attempt${remaining === 1 ? "" : "s"} left before it locks.` : ""}`
+          : failure.message.replace(/^\d+:\s*/, "") || "The package could not be received.";
+      setCodeNotice((current) => ({ ...current, [id]: { message, locked } }));
+      setCredential((current) => ({ ...current, [id]: "" }));
     } finally {
       setPending(undefined);
     }
@@ -90,13 +145,66 @@ export default function FulfilmentHubPage() {
     try {
       const checks = passed
         ? (item.items || []).map((row) => ({ orderItemId: row.orderItemId, confirmed: Boolean(confirmedItems[row.orderItemId]) }))
-        : [{ result: "failed", at: new Date().toISOString() }];
+        : [];
+      const failures = passed
+        ? undefined
+        : (item.items || [])
+            .filter((row) => failureDrafts[row.orderItemId]?.reason)
+            .map((row) => ({
+              orderItemId: row.orderItemId,
+              reason: failureDrafts[row.orderItemId]!.reason,
+              note: (failureDrafts[row.orderItemId]?.note || "").trim(),
+            }));
       await apiPost(`/admin/fulfilment/packages/${id}/qc`, {
         version: item.version,
         passed,
         checks,
+        ...(failures ? { failures } : {}),
       });
+      setFailureDrafts({});
+      toast.success(passed ? `Package ${id} approved. It is ready to consolidate.` : `Package ${id} failed its check. An issue was opened for review.`);
+      setReviewId(undefined);
       await query.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "The quality check could not be saved.");
+    } finally {
+      setPending(undefined);
+    }
+  }
+
+  // Half-typed problem reports belong to one package; never carry them over.
+  function openReview(id: string) {
+    setFailureDrafts({});
+    setReviewId(id);
+  }
+
+  async function resource(item: PackageRow) {
+    const id = item.publicId || item.id || item._id;
+    if (!id) return;
+    setPending(id);
+    try {
+      await apiPost(`/admin/fulfilment/packages/${id}/resource`, { version: item.version });
+      toast.success("Sent back to the Market Associate to source again.");
+      setReviewId(undefined);
+      await query.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "The package could not be sent back.");
+    } finally {
+      setPending(undefined);
+    }
+  }
+
+  async function reopen(item: PackageRow) {
+    const id = item.publicId || item.id || item._id;
+    if (!id) return;
+    setPending(id);
+    try {
+      await apiPost(`/admin/fulfilment/packages/${id}/qc/reopen`, { version: item.version });
+      toast.success(`Package ${id} is back in the quality check.`);
+      setReviewId(undefined);
+      await query.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "The check could not be re-opened.");
     } finally {
       setPending(undefined);
     }
@@ -108,7 +216,10 @@ export default function FulfilmentHubPage() {
     setPending(`consolidate-${id}`);
     try {
       await apiPost(`/admin/fulfilment/orders/${id}/consolidate`, { hubId: item.hubId });
+      toast.success("Consolidation started. Seal the parcel when it is packed.");
       await query.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "The consolidation could not be started.");
     } finally {
       setPending(undefined);
     }
@@ -120,7 +231,17 @@ export default function FulfilmentHubPage() {
     setPending(`seal-${id}`);
     try {
       await apiPost(`/admin/fulfilment/consolidations/${id}/seal`, { version: item.version });
+      const orderRef = item.order?.publicId || item.orderId;
+      toast.success("Parcel sealed.", {
+        description: "Print the Hook receipt and stick it on the parcel.",
+        action: orderRef
+          ? { label: "Print receipt", onClick: () => setReceiptOrder(orderRef) }
+          : undefined,
+        duration: 12000,
+      });
       await query.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "The parcel could not be sealed.");
     } finally {
       setPending(undefined);
     }
@@ -128,108 +249,362 @@ export default function FulfilmentHubPage() {
 
   const readyForConsolidation = useMemo(() => {
     const seen = new Set<string>();
+    // An order with a failed package is held until that item is resolved.
+    const held = new Set((query.data?.packages || []).filter(isOnHold).map((item) => item.orderId));
     return (query.data?.packages || []).filter((item) => {
-      if (item.status !== "QC_PASSED" || !item.orderId || seen.has(item.orderId)) return false;
+      if (item.status !== "QC_PASSED" || !item.orderId || seen.has(item.orderId) || held.has(item.orderId)) return false;
       seen.add(item.orderId);
       return true;
     });
   }, [query.data?.packages]);
 
-  if (query.isLoading) return <div className="grid min-h-80 place-items-center"><HookLoader label="Loading Hub workspace" /></div>;
-  if (query.isError || !query.data) return <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">The Hub workspace could not be loaded. Refresh and try again.</div>;
+  // Packages awaiting or holding a quality decision. Computed once instead of
+  // filtering the same array twice inline.
+  const qcPackages = useMemo(
+    () => (query.data?.packages || []).filter((item) =>
+      ["RECEIVED", "QC_PENDING", "QC_PASSED"].includes(String(item.status)),
+    ),
+    [query.data?.packages],
+  );
+
+  const failedPackages = useMemo(
+    () => (query.data?.packages || []).filter(isOnHold),
+    [query.data?.packages],
+  );
+  const reviewing = [...qcPackages, ...failedPackages].find((item) => (item.publicId || item.id || item._id) === reviewId);
 
   const data = query.data;
+  const inbound = data?.inbound || [];
+  const consolidations = data?.consolidations || [];
   return (
     <div className="w-full space-y-5 px-4 py-5">
-      <PageHeader title="Dispatch Hub workspace" description="Receive Market Associate packages, complete visible quality checks, and prepare complete State Orders for dispatch." />
+      <PageHeader
+        showBack={false}
+        title="Dispatch Hub workspace"
+        description="Receive Market Associate packages, complete visible quality checks, and prepare complete State Orders for dispatch."
+        actions={
+          hubOptions.length > 1 ? (
+            <Select value={hubId} onValueChange={setHubId}>
+              <SelectTrigger className="h-9 w-[220px]">
+                <SelectValue placeholder="All hubs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All my hubs</SelectItem>
+                {hubOptions.map((hub) => {
+                  const value = String(hub.publicId || hub.id);
+                  return (
+                    <SelectItem key={value} value={value}>
+                      {hub.name || value}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          ) : undefined
+        }
+      />
 
+      <StageStrip
+        active={stage}
+        onSelect={(key) => setStage(key as "inbound" | "qc" | "failed" | "consolidate")}
+        stages={[
+          { key: "inbound", label: "Inbound", count: inbound.length, tone: inbound.length ? "warning" : "default" },
+          { key: "qc", label: "Quality check", count: qcPackages.filter((item) => item.status !== "QC_PASSED").length },
+          { key: "failed", label: "Failed", count: failedPackages.length, tone: failedPackages.length ? "danger" : "default" },
+          { key: "consolidate", label: "Consolidate & seal", count: readyForConsolidation.length + consolidations.length },
+        ]}
+      />
+
+      {stage === "inbound" ? (
       <Card className="rounded-lg shadow-none">
         <CardHeader className="flex-row items-center justify-between gap-3">
           <div>
             <CardTitle className="text-base">Inbound Market Associate packages</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">Verify the one-time six-digit credential before accepting custody.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Verify the four-digit handover code written on the package before accepting custody.</p>
           </div>
-          <Badge variant="outline">{data.inbound.length} waiting</Badge>
+          <Badge variant="outline">{inbound.length} waiting</Badge>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {data.inbound.length ? data.inbound.map((item, index) => {
-            const id = item.publicId || item.id || item._id || `inbound-${index}`;
-            return (
-              <div key={id} className="grid gap-3 rounded-md border p-4 lg:grid-cols-[1fr_220px_auto] lg:items-center">
-                <div>
-                  <div className="flex items-center gap-2"><Truck className="size-4" /><p className="text-sm font-medium">{id}</p><Badge variant="secondary">Ready for Hub</Badge></div>
-                  <p className="mt-1 text-xs text-muted-foreground">Order {item.order?.publicId || item.orderId || "-"} · {item.hub?.name || `Hub ${item.hubId || "-"}`}</p>
-                </div>
-                <Input inputMode="numeric" maxLength={6} placeholder="Six-digit credential" value={credential[id] || ""} onChange={(event) => setCredential((current) => ({ ...current, [id]: event.target.value.replace(/\D/g, "").slice(0, 6) }))} />
-                <Button size="sm" onClick={() => void receive(item)} disabled={pending === id || credential[id]?.length !== 6}>{pending === id ? <HookLoader size="button" /> : <><PackageCheck /> Receive package</>}</Button>
-              </div>
-            );
-          }) : <p className="py-8 text-center text-sm text-muted-foreground">No Market Associate packages are awaiting Hub receipt.</p>}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-lg shadow-none">
-        <CardHeader><CardTitle className="text-base">Visible quality checks</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          {data.packages.filter((item) => ["RECEIVED", "QC_PENDING", "QC_PASSED"].includes(String(item.status))).length ? data.packages.filter((item) => ["RECEIVED", "QC_PENDING", "QC_PASSED"].includes(String(item.status))).map((item, index) => {
-            const id = item.publicId || item.id || item._id || `package-${index}`;
-            const awaitingQc = item.status === "RECEIVED" || item.status === "QC_PENDING";
-            const items = item.items || [];
-            const allConfirmed = items.length > 0 && items.every((row) => confirmedItems[row.orderItemId]);
-            return (
-              <div key={id} className="space-y-3 rounded-md border p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div><div className="flex items-center gap-2"><PackageCheck className="size-4" /><p className="text-sm font-medium">{id}</p><Badge variant={item.status === "QC_PASSED" ? "default" : "secondary"}>{label(item.status)}</Badge></div><p className="mt-1 text-xs text-muted-foreground">Order {item.order?.publicId || item.orderId || "-"} · {item.hub?.name || `Hub ${item.hubId || "-"}`}</p></div>
-                  {awaitingQc ? <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => void qc(item, true)} disabled={pending === id || !allConfirmed}>{pending === id ? <HookLoader size="button" /> : <><CheckCircle2 /> QC pass</>}</Button><Button size="sm" variant="destructive" onClick={() => void qc(item, false)} disabled={pending === id}><PackageX /> Fail and open exception</Button></div> : <Badge variant="outline">Ready for consolidation</Badge>}
-                </div>
-
-                {awaitingQc && items.length ? (
-                  <div className="space-y-2 border-t pt-3">
-                    {items.map((row) => (
-                      <div key={row.orderItemId} className="grid gap-3 rounded-md bg-muted/30 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
-                        <div>
-                          <p className="mb-1 text-xs font-medium text-muted-foreground">Ordered</p>
-                          <div className="relative aspect-square w-full max-w-24 overflow-hidden rounded-md bg-muted">
-                            {row.orderedPhotoUrl ? <Image src={row.orderedPhotoUrl} alt="Ordered reference" fill className="object-cover" unoptimized /> : null}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="mb-1 text-xs font-medium text-muted-foreground">Picked up</p>
-                          <div className="relative aspect-square w-full max-w-24 overflow-hidden rounded-md bg-muted">
-                            {row.pickedUpPhotoUrl ? <Image src={row.pickedUpPhotoUrl} alt="Picked up by Market Associate" fill className="object-cover" unoptimized /> : null}
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <p className="text-sm font-medium">{row.productTitle || "Product item"}</p>
-                          <Badge variant={row.matched ? "default" : "secondary"} className="w-fit">{row.matched ? "Market Associate confirmed match" : "Market Associate reported mismatch"}</Badge>
-                          <label className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              checked={Boolean(confirmedItems[row.orderItemId])}
-                              onCheckedChange={(value) => setConfirmedItems((current) => ({ ...current, [row.orderItemId]: value === true }))}
+        <CardContent className="p-0">
+          <QueryState
+            loading={query.isLoading}
+            error={query.error}
+            empty={inbound.length === 0}
+            loadingLabel="Loading Hub workspace"
+            errorTitle="The Hub workspace could not be loaded"
+            emptyTitle="Nothing awaiting receipt"
+            emptyDescription="Market Associate packages appear here on their way to this hub."
+            emptyIcon={Truck}
+            onRetry={() => query.refetch()}
+          >
+            {inbound.map((item, index) => {
+              const id = item.publicId || item.id || item._id || `inbound-${index}`;
+              return (
+                <div key={id} className="border-t border-zinc-100 first:border-t-0">
+                  <ListRow
+                    index={index + 1}
+                    initials={initialsOf(item.hub?.name || "hub")}
+                    title={<span className="truncate text-sm font-semibold text-zinc-950">{id}</span>}
+                    subject={item.order?.publicId || item.orderId || undefined}
+                    meta={[item.hub?.name || `Hub ${item.hubId || "-"}`, "Awaiting receipt"]}
+                    actions={
+                      <PermissionGuard permission="fulfilment.hub.receive">
+                        <div className="flex flex-col items-end gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <HandoverCodeInput
+                              value={credential[id] || ""}
+                              invalid={Boolean(codeNotice[id]?.message)}
+                              disabled={pending === id || codeNotice[id]?.locked}
+                              ariaLabel={`Handover code for package ${id}`}
+                              onChange={(value) => setCredential((current) => ({ ...current, [id]: value }))}
+                              onComplete={(value) => void receive(item, value)}
                             />
-                            Confirm this item
-                          </label>
+                            <Button
+                              size="sm"
+                              onClick={() => void receive(item)}
+                              disabled={pending === id || codeNotice[id]?.locked || (credential[id]?.length ?? 0) !== HANDOVER_CODE_LENGTH}
+                            >
+                              {pending === id ? (
+                                <HookLoader size="button" />
+                              ) : (
+                                <>
+                                  <PackageCheck /> Receive
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          {codeNotice[id]?.message ? (
+                            <p role="alert" className={`max-w-xs text-right text-xs ${codeNotice[id]?.locked ? "font-semibold text-destructive" : "text-destructive"}`}>
+                              {codeNotice[id]?.message}
+                            </p>
+                          ) : null}
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          }) : <p className="py-8 text-center text-sm text-muted-foreground">No packages are waiting for quality review.</p>}
+                      </PermissionGuard>
+                    }
+                  />
+                </div>
+              );
+            })}
+          </QueryState>
         </CardContent>
       </Card>
+      ) : null}
 
+      {stage === "qc" ? (
       <Card className="rounded-lg shadow-none">
-        <CardHeader><CardTitle className="text-base">Consolidation and final packing</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {readyForConsolidation.length ? readyForConsolidation.map((item, index) => {
-            const id = `${item.orderId}-${item.hubId || index}`;
-            return <div key={id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-4"><div><p className="text-sm font-medium">Order {item.order?.publicId || item.orderId}</p><p className="mt-1 text-xs text-muted-foreground">All active packages passed QC · {item.hub?.name || `Hub ${item.hubId || "-"}`}</p></div><Button size="sm" onClick={() => void consolidate(item)} disabled={pending === `consolidate-${item.orderId}`}>{pending === `consolidate-${item.orderId}` ? <HookLoader size="button" /> : "Start consolidation"}</Button></div>;
-          }) : <p className="py-4 text-center text-sm text-muted-foreground">No complete Orders are ready for consolidation.</p>}
-          {data.consolidations.length ? data.consolidations.map((item, index) => { const id = item.publicId || item.id || item._id || `consolidation-${index}`; return <div key={id} className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/40 p-4"><div><p className="text-sm font-medium">{id} · Order {item.order?.publicId || item.orderId || "-"}</p><p className="mt-1 text-xs text-muted-foreground">{item.hub?.name || `Hub ${item.hubId || "-"}`} · {label(item.status)}</p></div>{item.status === "DRAFT" ? <Button size="sm" onClick={() => void seal(item)} disabled={pending === `seal-${id}`}>{pending === `seal-${id}` ? <HookLoader size="button" /> : <><ShieldCheck /> Seal parcel</>}</Button> : <Badge>Sealed for dispatch</Badge>}</div>; }) : null}
+        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+          <CardTitle className="text-base">Visible quality checks</CardTitle>
+          <Badge variant="outline">{qcPackages.length} in review</Badge>
+        </CardHeader>
+        <CardContent className="p-0">
+          <QueryState
+            loading={query.isLoading}
+            error={query.error}
+            empty={qcPackages.length === 0}
+            loadingLabel="Loading Hub workspace"
+            errorTitle="The Hub workspace could not be loaded"
+            emptyTitle="Nothing waiting for quality review"
+            emptyDescription="Received packages appear here for their visible check."
+            emptyIcon={PackageCheck}
+            onRetry={() => query.refetch()}
+          >
+            {qcPackages.map((item, index) => {
+              const id = item.publicId || item.id || item._id || `package-${index}`;
+              const awaitingQc = item.status === "RECEIVED" || item.status === "QC_PENDING";
+              const items = item.items || [];
+              return (
+                <div key={id} className="border-t border-zinc-100 first:border-t-0">
+                  <ListRow
+                    index={index + 1}
+                    initials={initialsOf(item.hub?.name || "hub")}
+                    title={<span className="truncate text-sm font-semibold text-zinc-950">{id}</span>}
+                    subject={item.order?.publicId || item.orderId || undefined}
+                    meta={[
+                      item.hub?.name || `Hub ${item.hubId || "-"}`,
+                      awaitingQc
+                        ? `${items.length} item${items.length === 1 ? "" : "s"} to check`
+                        : "Ready for consolidation",
+                    ]}
+                    actions={
+                      <>
+                        <StatusBadge status={item.status || "RECEIVED"} />
+                        <Button size="sm" variant={awaitingQc ? "default" : "outline"} onClick={() => openReview(id)}>
+                          <Eye /> {awaitingQc ? "Review & approve" : "View"}
+                        </Button>
+                      </>
+                    }
+                  />
+                </div>
+              );
+            })}
+          </QueryState>
         </CardContent>
       </Card>
+      ) : null}
+
+      {stage === "failed" ? (
+        <Card className="rounded-lg shadow-none">
+          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+            <div>
+              <CardTitle className="text-base">Failed quality checks</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Held until each item issue is resolved, then re-open the check.</p>
+            </div>
+            <Badge variant="outline">{failedPackages.length} on hold</Badge>
+          </CardHeader>
+          <CardContent className="p-0">
+            <QueryState
+              loading={query.isLoading}
+              error={query.error}
+              empty={failedPackages.length === 0}
+              loadingLabel="Loading Hub workspace"
+              errorTitle="The Hub workspace could not be loaded"
+              emptyTitle="No failed packages"
+              emptyDescription="Packages that fail their check are held here with the reason."
+              emptyIcon={ShieldCheck}
+              onRetry={() => query.refetch()}
+            >
+              {failedPackages.map((item, index) => {
+                const id = item.publicId || item.id || item._id || `failed-${index}`;
+                const failed = (item.qualityChecks || []).filter((entry) => entry.result === "failed");
+                return (
+                  <ListRow
+                    key={id}
+                    index={index + 1}
+                    initials={initialsOf(item.hub?.name || "hub")}
+                    title={<span className="truncate text-sm font-semibold text-zinc-950">{id}</span>}
+                    subject={item.order?.publicId || item.orderId || undefined}
+                    meta={[
+                      item.hub?.name || `Hub ${item.hubId || "-"}`,
+                      `${failed.length} item${failed.length === 1 ? "" : "s"} failed`,
+                      failed[0]?.reason ? String(failed[0].reason).replaceAll("_", " ").toLowerCase() : undefined,
+                    ]}
+                    actions={
+                      <>
+                        <StatusBadge status="QC_FAILED" />
+                        <Button size="sm" variant="outline" onClick={() => openReview(id)}>
+                          <Eye /> View &amp; re-check
+                        </Button>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </QueryState>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {stage === "consolidate" ? (
+      <Card className="rounded-lg shadow-none">
+        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+          <CardTitle className="text-base">Consolidation and final packing</CardTitle>
+          <Badge variant="outline">
+            {readyForConsolidation.length} ready · {consolidations.length} open
+          </Badge>
+        </CardHeader>
+        <CardContent className="p-0">
+          <QueryState
+            loading={query.isLoading}
+            error={query.error}
+            empty={readyForConsolidation.length === 0 && consolidations.length === 0}
+            loadingLabel="Loading Hub workspace"
+            errorTitle="The Hub workspace could not be loaded"
+            emptyTitle="Nothing ready to consolidate"
+            emptyDescription="Orders appear here once every package has passed QC."
+            emptyIcon={ShieldCheck}
+            onRetry={() => query.refetch()}
+          >
+            {readyForConsolidation.map((item, index) => {
+              const id = `${item.orderId}-${item.hubId || index}`;
+              return (
+                <div key={id} className="border-t border-zinc-100 first:border-t-0">
+                  <ListRow
+                    index={index + 1}
+                    initials={initialsOf(item.hub?.name || "hub")}
+                    title={
+                      <span className="truncate text-sm font-semibold text-zinc-950">
+                        {item.order?.publicId || item.orderId}
+                      </span>
+                    }
+                    meta={[
+                      item.hub?.name || `Hub ${item.hubId || "-"}`,
+                      "All active packages passed QC",
+                    ]}
+                    actions={
+                      <PermissionGuard permission="fulfilment.consolidate">
+                        <Button
+                          size="sm"
+                          onClick={() => void consolidate(item)}
+                          disabled={pending === `consolidate-${item.orderId}`}
+                        >
+                          {pending === `consolidate-${item.orderId}` ? (
+                            <HookLoader size="button" />
+                          ) : (
+                            "Start consolidation"
+                          )}
+                        </Button>
+                      </PermissionGuard>
+                    }
+                  />
+                </div>
+              );
+            })}
+            {consolidations.map((item, index) => {
+              const id = item.publicId || item.id || item._id || `consolidation-${index}`;
+              return (
+                <div key={id} className="border-t border-zinc-100 first:border-t-0">
+                  <ListRow
+                    index={readyForConsolidation.length + index + 1}
+                    initials={initialsOf(item.hub?.name || "hub")}
+                    title={<span className="truncate text-sm font-semibold text-zinc-950">{id}</span>}
+                    subject={item.order?.publicId || item.orderId || undefined}
+                    meta={[item.hub?.name || `Hub ${item.hubId || "-"}`, label(item.status)]}
+                    actions={
+                      item.status === "DRAFT" ? (
+                        <PermissionGuard permission="fulfilment.consolidate">
+                          <Button size="sm" onClick={() => void seal(item)} disabled={pending === `seal-${id}`}>
+                            {pending === `seal-${id}` ? (
+                              <HookLoader size="button" />
+                            ) : (
+                              <>
+                                <ShieldCheck /> Seal parcel
+                              </>
+                            )}
+                          </Button>
+                        </PermissionGuard>
+                      ) : (
+                        <>
+                          <StatusBadge status={item.status || "SEALED"} />
+                          <Button size="sm" variant="outline" onClick={() => setReceiptOrder(item.order?.publicId || item.orderId)}>
+                            <Printer /> Print receipt
+                          </Button>
+                        </>
+                      )
+                    }
+                  />
+                </div>
+              );
+            })}
+          </QueryState>
+        </CardContent>
+      </Card>
+      ) : null}
+      <ReceiptPrintDialog orderRef={receiptOrder} open={Boolean(receiptOrder)} onOpenChange={(open) => (open ? undefined : setReceiptOrder(undefined))} />
+      <PackageReviewSheet
+        pkg={reviewing}
+        open={Boolean(reviewing)}
+        onOpenChange={(open) => (open ? undefined : setReviewId(undefined))}
+        confirmed={confirmedItems}
+        onConfirm={(orderItemId, value) => setConfirmedItems((current) => ({ ...current, [orderItemId]: value }))}
+        pending={Boolean(reviewing && pending === (reviewing.publicId || reviewing.id || reviewing._id))}
+        canDecide={reviewing?.status === "RECEIVED" || reviewing?.status === "QC_PENDING"}
+        onApprove={() => reviewing && void qc(reviewing, true)}
+        onFail={() => reviewing && void qc(reviewing, false)}
+        failures={failureDrafts}
+        onFailureChange={(orderItemId, draft) => setFailureDrafts((current) => ({ ...current, [orderItemId]: draft }))}
+        canReopen={reviewing?.status === "QC_FAILED"}
+        onReopen={() => reviewing && void reopen(reviewing)}
+        onResource={() => reviewing && void resource(reviewing)}
+      />
     </div>
   );
 }

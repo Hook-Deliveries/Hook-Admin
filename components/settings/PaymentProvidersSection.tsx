@@ -14,7 +14,7 @@ import { PaymentProviderMark } from "@/components/payments/PaymentProviderMark";
 import { apiPatch } from "@/lib/api";
 import { useApiQuery } from "@/lib/query";
 
-type Provider = { provider: "paystack" | "opay"; enabled: boolean; displayOrder: number; isDefault: boolean; configured: boolean; mode: "test" | "live"; reason?: string };
+type Provider = { provider: "paystack"; enabled: boolean; displayOrder: number; isDefault: boolean; configured: boolean; mode: "test" | "live"; reason?: string };
 
 export function PaymentProvidersSection() {
   const query = useApiQuery<{ providers: Provider[] }>(["commerce", "payment-providers"], "/admin/commerce/payment-providers");
@@ -62,10 +62,10 @@ export function PaymentProvidersSection() {
         {[...providers].sort((a, b) => a.displayOrder - b.displayOrder).map((provider) => (
           <div key={provider.provider} className="grid gap-4 rounded-lg border border-zinc-200 p-4 sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center">
             <div className="flex min-w-0 items-center gap-3">
-              <PaymentProviderMark provider={provider.provider} />
+              <PaymentProviderMark />
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="font-semibold">{provider.provider === "opay" ? "OPay" : "Paystack"}</p>
+                  <p className="font-semibold">Paystack</p>
                   {provider.configured && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${provider.mode === "live" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{provider.mode}</span>}
                 </div>
                 <p className="text-xs text-zinc-500">{provider.configured ? "Ready to accept payments" : provider.reason || "Missing configuration"}</p>

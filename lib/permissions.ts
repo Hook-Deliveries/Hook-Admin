@@ -19,6 +19,7 @@ export const ALL_PERMISSIONS = [
   "audit.view", "settings.manage",
   "orders.view",
   "orders.edit",
+  "orders.cancel",
   "orders.create",
   "products.view",
   "products.review",
@@ -42,7 +43,7 @@ export const ALL_PERMISSIONS = [
   "customers.view",
   "customers.edit",
   "runners.view",
-  "fulfilment.view", "fulfilment.manage", "fulfilment.assign", "fulfilment.resolve", "fulfilment.consolidate",
+  "fulfilment.view", "fulfilment.manage", "fulfilment.assign", "fulfilment.consolidate",
   "fulfilment.hub.view", "fulfilment.hub.receive", "fulfilment.hub.qc",
   "logistics.view", "logistics.book", "logistics.manage", "logistics.track",
   "returns.view", "returns.review", "returns.manage",
@@ -58,9 +59,9 @@ export const ALL_PERMISSIONS = [
   "refunds.manage",
   "deletions.view",
   "deletions.manage",
-  "analytics.checkout",
   "reports.view",
   "ai_negotiation.view",
+  "app_releases.view", "app_releases.manage",
   "ai_negotiation.manage",
   "ai_negotiation.transcript.view",
   "settings.view",
@@ -70,6 +71,8 @@ export const ALL_PERMISSIONS = [
   "market.collections.view", "market.collections.manage",
   "market.payments.view", "market.payments.reconcile",
   "catalog.availability.view", "catalog.availability.manage", "catalog.availability.confirm",
+  "coupons.view", "coupons.manage",
+  "credits.view", "credits.adjust",
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -89,6 +92,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "audit.view": "View Audit Logs", "settings.manage": "Manage Settings",
   "orders.view": "View Orders",
   "orders.edit": "Edit Orders",
+  "orders.cancel": "Cancel Orders",
   "orders.create": "Create Orders",
   "products.view": "View Products",
   "products.review": "Review Products",
@@ -115,7 +119,6 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "fulfilment.view": "View Fulfilment",
   "fulfilment.manage": "Manage Fulfilment",
   "fulfilment.assign": "Assign Fulfilment",
-  "fulfilment.resolve": "Resolve Fulfilment Exceptions",
   "fulfilment.consolidate": "Consolidate Orders",
   "fulfilment.hub.view": "View Hub Packages",
   "fulfilment.hub.receive": "Receive Hub Packages",
@@ -146,9 +149,10 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "refunds.manage": "Manage Refunds",
   "deletions.view": "View Deletion Requests",
   "deletions.manage": "Manage Deletion Requests",
-  "analytics.checkout": "View Checkout Analytics",
   "reports.view": "View Reports",
   "ai_negotiation.view": "View AI Negotiation",
+  "app_releases.view": "View App Releases",
+  "app_releases.manage": "Manage App Releases",
   "ai_negotiation.manage": "Manage AI Negotiation",
   "ai_negotiation.transcript.view": "View Negotiation Transcripts",
   "settings.view": "View Settings",
@@ -167,12 +171,16 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "catalog.availability.view": "View Availability Checks",
   "catalog.availability.manage": "Request Availability Checks",
   "catalog.availability.confirm": "Confirm Product Availability",
+  "coupons.view": "View Coupons",
+  "coupons.manage": "Manage Coupons",
+  "credits.view": "View Customer Credits",
+  "credits.adjust": "Adjust Customer Credits",
 };
 
 export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
   {
     label: "Orders",
-    permissions: ["orders.view", "orders.edit", "orders.create"],
+    permissions: ["orders.view", "orders.edit", "orders.create", "orders.cancel"],
   },
   {
     label: "Catalog",
@@ -195,7 +203,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
     label: "Operations",
     permissions: [
       "runners.view", "runners.manage", "fulfilment.view", "fulfilment.manage",
-      "fulfilment.assign", "fulfilment.resolve", "fulfilment.consolidate",
+      "fulfilment.assign", "fulfilment.consolidate",
       "fulfilment.hub.view", "fulfilment.hub.receive", "fulfilment.hub.qc",
       "logistics.view", "logistics.book", "logistics.manage", "logistics.track",
       "returns.view", "returns.review", "returns.manage", "custody.view", "custody.manage",
@@ -207,7 +215,9 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
       "financials.view", "financials.refund", "financials.reconcile",
       "finance.refunds.view", "finance.refunds.process",
       "commerce.payments.view", "commerce.payments.reconcile",
-      "reports.view", "ai_negotiation.view", "analytics.checkout",
+      "reports.view", "ai_negotiation.view",
+      "coupons.view", "coupons.manage",
+      "credits.view", "credits.adjust",
     ],
   },
   {

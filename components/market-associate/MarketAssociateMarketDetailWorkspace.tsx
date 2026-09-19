@@ -26,8 +26,8 @@ import {
   MobileSection,
   MobileStat,
 } from "@/components/mobile/MobileUI";
+import { useQueryClient } from "@tanstack/react-query";
 import { useApiQuery } from "@/lib/query";
-import { MarketVendorSheet } from "@/components/market-associate/MarketVendorSheet";
 import { VendorCollectionSheet } from "@/components/market-associate/VendorCollectionSheet";
 import { MarketImage } from "@/components/markets/MarketImage";
 import { money } from "@/lib/admin-utils";
@@ -86,7 +86,17 @@ const label = (value?: string) => String(value || "-").replaceAll("_", " ");
 
 export function MarketAssociateMarketDetailWorkspace({ id }: { id: string }) {
   const query = useApiQuery<Detail>(["marketassociate", "market", id], `/market-associate/markets/${id}`);
-  const [vendorOpen, setVendorOpen] = useState(false);
+  const queryClient = useQueryClient();
+
+  /**
+   * Supplier changes also feed the capture form's vendor picker, which reads a
+   * separate cache — refetching this view alone would leave that list stale.
+   */
+  function syncMarket() {
+    void queryClient.invalidateQueries({ queryKey: ["marketassociate", "market", id] });
+    void queryClient.invalidateQueries({ queryKey: ["marketassociate", "market-vendors"] });
+    void queryClient.invalidateQueries({ queryKey: ["marketassociate", "markets"] });
+  }
   const [vendorSearch, setVendorSearch] = useState("");
   const [collectionSubmission, setCollectionSubmission] = useState<Submission | null>(null);
   const detail = query.data;
@@ -148,7 +158,7 @@ export function MarketAssociateMarketDetailWorkspace({ id }: { id: string }) {
       </div>
 
       <div className="mb-7">
-        <MobileButton onClick={() => setVendorOpen(true)}>
+        <MobileButton href={`/market-associate/markets/${marketId}/vendors/new`}>
           <Plus size={18} /> Onboard a supplier
         </MobileButton>
       </div>
@@ -277,20 +287,12 @@ export function MarketAssociateMarketDetailWorkspace({ id }: { id: string }) {
         )}
       </MobileSection>
 
-      <MarketVendorSheet
-        key={vendorOpen ? "vendor-open" : "vendor-closed"}
-        marketId={marketId}
-        marketName={detail.market.name}
-        open={vendorOpen}
-        onClose={() => setVendorOpen(false)}
-        onSuccess={() => void query.refetch()}
-      />
       <VendorCollectionSheet
         key={collectionSubmission?.publicId || "collection-closed"}
         submission={collectionSubmission}
         open={Boolean(collectionSubmission)}
         onClose={() => setCollectionSubmission(null)}
-        onSuccess={() => void query.refetch()}
+        onSuccess={syncMarket}
       />
     </div>
   );

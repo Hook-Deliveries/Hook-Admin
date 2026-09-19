@@ -4,10 +4,10 @@ import { FormEvent, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
-import { HookLogo } from "@/components/shared/HookLogo";
+import { PublicShell } from "@/components/public/PublicShell";
 import { HookLoader } from "@/components/shared/HookLoader";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiPost } from "@/lib/api";
@@ -52,33 +52,31 @@ export function AccountActivationForm({ accountType }: { accountType: AccountTyp
     }
   }
 
+  const heading = complete ? "Account ready" : "Set your password";
+  const description = complete
+    ? accountType === "customer"
+      ? "Your Hook account is ready. Open the Hook app and sign in to start shopping."
+      : `Your Hook ${accountType} account is ready to use.`
+    : accountType === "customer"
+      ? "Create a password to finish setting up your Hook account."
+      : `Create a secure password for your Hook ${accountType} account.`;
   return (
-    <main className="grid min-h-screen place-items-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md rounded-lg shadow-sm">
-        <CardHeader className="items-center text-center">
-          <HookLogo />
-          <div className="mt-5 grid size-12 place-items-center rounded-full bg-hook/20">
+    <PublicShell eyebrow="Welcome to Hook" title={heading} description={description} width="md" centered>
+      <Card className="rounded-2xl py-6 shadow-sm">
+        <CardHeader className="items-center px-6 text-center">
+          <div className="grid size-12 place-items-center rounded-full bg-brand-gold/20">
             {complete ? <CheckCircle2 className="size-6" /> : <KeyRound className="size-6" />}
           </div>
-          <CardTitle className="mt-2">{complete ? "Account ready" : "Set your password"}</CardTitle>
-          <CardDescription>
-            {complete
-              ? accountType === "customer"
-                ? "Your Hook account is ready. Open the Hook app and sign in to start shopping."
-                : `Your Hook ${accountType} account is ready to use.`
-              : accountType === "customer"
-                ? "Create a password to finish setting up your Hook account."
-                : `Create a secure password for your Hook ${accountType} account.`}
-          </CardDescription>
+          <CardTitle className="mt-2 text-lg">{heading}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-6">
           {complete ? (
             accountType === "customer" ? (
               <p className="text-center text-sm text-muted-foreground">
                 You can close this page and continue in the Hook app.
               </p>
             ) : (
-              <Button className="w-full bg-hook text-black hover:bg-hook/90" onClick={() => router.replace(destinations[accountType])}>
+              <Button variant="brand" size="lg" className="w-full" onClick={() => router.replace(destinations[accountType])}>
                 Continue to sign in
               </Button>
             )
@@ -92,7 +90,7 @@ export function AccountActivationForm({ accountType }: { accountType: AccountTyp
                 <Label htmlFor="confirmation">Confirm password</Label>
                 <Input id="confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={9} required />
               </div>
-              <Button disabled={pending || !token} className="w-full bg-hook text-black hover:bg-hook/90">
+              <Button variant="brand" size="lg" disabled={pending || !token} className="w-full">
                 {pending ? <HookLoader size="button" variant="dark" /> : "Activate account"}
               </Button>
               {!token ? <p className="text-center text-sm text-destructive">Use the complete invitation link from your email.</p> : null}
@@ -100,6 +98,6 @@ export function AccountActivationForm({ accountType }: { accountType: AccountTyp
           )}
         </CardContent>
       </Card>
-    </main>
+    </PublicShell>
   );
 }

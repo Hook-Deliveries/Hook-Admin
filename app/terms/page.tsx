@@ -1,6 +1,6 @@
 "use client";
 
-import { LegalContentView } from "@/components/legal/LegalContentView";
+import { PublicLegalPage } from "@/components/public/PublicLegalPage";
 import { HookLoader } from "@/components/shared/HookLoader";
 import { useApiQuery } from "@/lib/query";
 
@@ -15,11 +15,11 @@ export default function TermsPage() {
   const query = useApiQuery<LegalContent>(["public", "legal", "terms"], "/public/legal/terms");
 
   if (query.isLoading) {
-    return <div className="grid min-h-screen place-items-center"><HookLoader label="Loading Terms of Service" /></div>;
+    return <div className="grid min-h-screen place-items-center bg-muted/30"><HookLoader label="Loading Terms of Service" /></div>;
   }
 
   return (
-    <LegalContentView
+    <PublicLegalPage
       title={query.data?.title || "Terms of Service"}
       effectiveDate={query.data?.effectiveDate}
       bodyHtml={query.data?.bodyHtml || ""}

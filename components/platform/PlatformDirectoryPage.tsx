@@ -579,12 +579,12 @@ export function PlatformDirectoryPage({
           fields.length ? (
             managePermission ? (
               <PermissionGuard permission={managePermission}>
-                <Button variant="brand" onClick={() => { setEditingRow(null); setValues({}); setOpen(true); }}>
+                <Button variant="brand" size="sm" onClick={() => { setEditingRow(null); setValues({}); setOpen(true); }}>
                   <Plus /> Add {title.replace(/s$/, "")}
                 </Button>
               </PermissionGuard>
             ) : (
-              <Button variant="brand" onClick={() => { setEditingRow(null); setValues({}); setOpen(true); }}>
+              <Button variant="brand" size="sm" onClick={() => { setEditingRow(null); setValues({}); setOpen(true); }}>
                 <Plus /> Add {title.replace(/s$/, "")}
               </Button>
             )

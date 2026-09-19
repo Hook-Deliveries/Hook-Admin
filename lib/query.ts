@@ -4,6 +4,7 @@ import {
   apiDelete,
   apiPatch,
   apiPost,
+  checkHookHealth,
   clearSession,
   ensureAccountSession,
   loginAccount,
@@ -19,11 +20,36 @@ type ToastOptions = {
   silent?: boolean;
 };
 
-export function useApiQuery<T>(queryKey: readonly unknown[], path: string, enabled = true) {
+type ApiQueryOptions = {
+  staleTime?: number;
+  refetchOnMount?: boolean | "always";
+  refetchOnWindowFocus?: boolean;
+  refetchOnReconnect?: boolean;
+};
+
+export function useApiQuery<T>(queryKey: readonly unknown[], path: string, enabled = true, options?: ApiQueryOptions) {
   return useQuery({
     queryKey,
     queryFn: () => apiGet<T>(path),
     enabled,
+    ...options,
+  });
+}
+
+/**
+ * Shared across every guard that shows a maintenance screen (AuthShell,
+ * AdminGuard, PortalGuard) — one polling query rather than each guard
+ * pinging /health independently. Stays quiet (no retries, short staleTime)
+ * so a real outage is reflected quickly without hammering a server that's
+ * already down.
+ */
+export function useBackendHealth() {
+  return useQuery({
+    queryKey: ["backend-health"],
+    queryFn: checkHookHealth,
+    staleTime: 15_000,
+    refetchInterval: (query) => (query.state.data === false ? 5_000 : 30_000),
+    retry: false,
   });
 }
 
@@ -40,6 +66,61 @@ export function useApiPost<TData, TVariables = unknown>(
       silent: toastOptions.silent,
     },
     onSuccess: () => {
+      if (invalidate) queryClient.invalidateQueries({ queryKey: invalidate });
+    },
+  });
+}
+
+/**
+ * POST to a path derived from the mutation variables, for per-row actions whose
+ * URL is only known at call time. Toasts stay owned by the global MutationCache
+ * via `meta`, matching `useApiPost`.
+ *
+ * `optimistic` lets a caller rewrite the cached list before the request lands
+ * and restores the snapshot automatically if it fails.
+ *
+ * `buildBody` separates the request payload from the variables. Without it the
+ * whole variables object is sent, which fails against endpoints whose schema is
+ * strict about unknown keys — pass it whenever the variables carry routing data
+ * (an id for the path) that the API does not accept in the body.
+ */
+export function useApiPostTo<TData, TVariables>(
+  buildPath: (variables: TVariables) => string,
+  options: ToastOptions & {
+    invalidate?: readonly unknown[];
+    optimistic?: (previous: unknown, variables: TVariables) => unknown;
+    buildBody?: (variables: TVariables) => unknown;
+  } = {},
+) {
+  const queryClient = useQueryClient();
+  const { invalidate, optimistic, buildBody, successMessage, silent } = options;
+
+  return useMutation({
+    mutationFn: (variables: TVariables) =>
+      apiPost<TData>(
+        buildPath(variables),
+        buildBody ? buildBody(variables) : variables,
+      ),
+    meta: {
+      successMessage: successMessage || "Saved successfully",
+      silent,
+    },
+    onMutate: async (variables: TVariables) => {
+      if (!invalidate || !optimistic) return;
+      await queryClient.cancelQueries({ queryKey: invalidate });
+      const previous = queryClient.getQueryData(invalidate);
+      queryClient.setQueryData(invalidate, (current: unknown) =>
+        optimistic(current, variables),
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      const snapshot = context as { previous?: unknown } | undefined;
+      if (invalidate && snapshot && "previous" in snapshot) {
+        queryClient.setQueryData(invalidate, snapshot.previous);
+      }
+    },
+    onSettled: () => {
       if (invalidate) queryClient.invalidateQueries({ queryKey: invalidate });
     },
   });

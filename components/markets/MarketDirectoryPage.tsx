@@ -95,7 +95,7 @@ export function MarketDirectoryPage() {
 
   return (
     <div className="w-full space-y-5 px-4 py-5">
-      <PageHeader title="Markets" description="A visual operating directory for the markets that power Hook catalog capture and fulfilment." actions={<PermissionGuard permission="markets.manage"><Button asChild variant="brand"><Link href="/dashboard/markets/new"><Plus /> Add market</Link></Button></PermissionGuard>} />
+      <PageHeader title="Markets" description="A visual operating directory for the markets that power Hook catalog capture and fulfilment." actions={<PermissionGuard permission="markets.manage"><Button asChild variant="brand" size="sm"><Link href="/dashboard/markets/new"><Plus /> Add market</Link></Button></PermissionGuard>} />
       <MarketOverview markets={markets} />
       <Card className="rounded-xl shadow-none">
         <CardContent className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center">

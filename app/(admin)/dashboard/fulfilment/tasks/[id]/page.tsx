@@ -1,17 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { use } from "react";
-import { ArrowLeft, Box, CheckCircle2, Clock3, MapPin, Package, Store } from "lucide-react";
+import { Box, CheckCircle2, Clock3, MapPin, Package, PauseCircle, Store } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import { DefinitionGrid } from "@/components/shared/DefinitionGrid";
 import { DetailSection } from "@/components/shared/DetailSection";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { buildCheckpoints, isTaskHalted, taskAge } from "@/lib/fulfilment-progress";
 import { QueryState } from "@/components/shared/QueryState";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useApiQuery } from "@/lib/query";
+import { ItemResolutionCard, type ItemResolutionView } from "@/components/fulfilment/ItemResolutionCard";
 
 type TaskDetail = {
   task?: {
@@ -22,16 +22,13 @@ type TaskDetail = {
     hubId?: string;
     marketAssociateId?: string;
     version?: number;
-    acceptanceDueAt?: string;
-    sourcingDueAt?: string;
-    hubHandoverDueAt?: string;
-    resolutionDueAt?: string;
     acceptedAt?: string;
     sourcingStartedAt?: string;
     productSecuredAt?: string;
     hubReceivedAt?: string;
-    completedAt?: string;
+    createdAt?: string;
     actualCostMinor?: number;
+    issue?: { type?: string; summary?: string; reportedAt?: string } | null;
     evidence?: Array<{ type?: string; note?: string; url?: string }>;
     market?: { name?: string; imageUrl?: string } | null;
     hub?: { name?: string } | null;
@@ -47,6 +44,7 @@ type TaskDetail = {
     productImage?: string;
     productSnapshot?: { title?: string; image?: string };
   }>;
+  issues?: ItemResolutionView[];
 };
 
 const label = (value?: string) => String(value || "-").replaceAll("_", " ");
@@ -64,28 +62,19 @@ export default function FulfilmentTaskDetailPage({ params }: { params: Promise<{
   const detail = query.data;
   const task = detail?.task;
 
-  const checkpoints = task
-    ? ([
-        ["Accepted", task.acceptedAt, task.acceptanceDueAt],
-        ["Sourcing started", task.sourcingStartedAt, task.sourcingDueAt],
-        ["Product secured", task.productSecuredAt, undefined],
-        ["Hub handover", task.hubReceivedAt, task.hubHandoverDueAt],
-        ["Completed", task.completedAt, task.resolutionDueAt],
-      ] as const)
-    : [];
+  // Progress, not deadlines. Each step knows whether it is done, current or
+  // still upcoming; urgency is expressed as age. There is deliberately no
+  // "Completed" row — the backend never writes completedAt, so it could never
+  // be satisfied.
+  const checkpoints = task ? buildCheckpoints(task) : [];
+  const halted = isTaskHalted(task?.status);
+  const age = taskAge(task?.createdAt);
 
   return (
     <div className="w-full space-y-5 px-4 py-5">
       <PageHeader
         title="Fulfilment task"
-        description="Full operational record — Market, Hub, Market Associate, items, and SLA checkpoints in one place."
-        actions={
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/fulfilment">
-              <ArrowLeft /> Control tower
-            </Link>
-          </Button>
-        }
+        description="Full operational record — Market, Hub, Market Associate, items, and progress in one place."
       />
 
       <QueryState
@@ -156,6 +145,7 @@ export default function FulfilmentTaskDetailPage({ params }: { params: Promise<{
 
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.42fr)_minmax(310px,0.58fr)]">
               <div className="space-y-4">
+                {detail?.issues?.length ? <DetailSection title="Item exceptions" description="Resolve product-specific sourcing problems without blocking work on unaffected items."><div className="space-y-3">{detail.issues.map((issue) => <ItemResolutionCard key={issue.publicId || issue.id} issue={issue} taskId={id} />)}</div></DetailSection> : null}
                 <DetailSection
                   title="Assigned items"
                   description="Products this Market Associate is sourcing for the order."
@@ -191,22 +181,58 @@ export default function FulfilmentTaskDetailPage({ params }: { params: Promise<{
                   )}
                 </DetailSection>
 
-                <DetailSection title="SLA checkpoints" description="Actual completion time against the operational deadline.">
+                <DetailSection
+                  title="Progress"
+                  description="Steps completed on this task."
+                  action={
+                    halted ? (
+                      <span className="rounded-full border border-warning/20 bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning">
+                        Halted
+                      </span>
+                    ) : age ? (
+                      <span className="rounded-full border bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                        {age}
+                      </span>
+                    ) : undefined
+                  }
+                >
                   <div className="space-y-3">
-                    {checkpoints.map(([title, actual, due]) => {
-                      const done = Boolean(actual);
+                    {checkpoints.map((point) => {
+                      const tone =
+                        point.state === "done"
+                          ? "text-success"
+                          : point.state === "halted"
+                            ? "text-warning"
+                            : point.state === "current"
+                              ? "text-foreground"
+                              : "text-muted-foreground";
+                      const Icon =
+                        point.state === "done"
+                          ? CheckCircle2
+                          : point.state === "halted"
+                            ? PauseCircle
+                            : Clock3;
                       return (
-                        <div key={title} className="flex items-start justify-between gap-3 border-b pb-3 last:border-0 last:pb-0">
+                        <div
+                          key={point.key}
+                          className="flex items-start justify-between gap-3 border-b pb-3 last:border-0 last:pb-0"
+                        >
                           <div className="flex items-start gap-2.5">
-                            {done ? (
-                              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-                            ) : (
-                              <Clock3 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                            )}
-                            <div>
-                              <p className="text-sm font-medium">{title}</p>
+                            <Icon className={`mt-0.5 size-4 shrink-0 ${tone}`} />
+                            <div className="min-w-0">
+                              <p
+                                className={`text-sm ${point.state === "upcoming" ? "font-medium text-muted-foreground" : "font-semibold"}`}
+                              >
+                                {point.title}
+                              </p>
                               <p className="text-xs text-muted-foreground">
-                                {done ? formatDate(actual) : due ? `Due ${formatDate(due)}` : "Not yet reached"}
+                                {point.state === "done"
+                                  ? formatDate(point.at)
+                                  : point.state === "current"
+                                    ? "In progress"
+                                    : point.state === "halted"
+                                      ? "Blocked"
+                                      : "Not started"}
                               </p>
                             </div>
                           </div>
@@ -218,6 +244,27 @@ export default function FulfilmentTaskDetailPage({ params }: { params: Promise<{
               </div>
 
               <div className="space-y-4">
+                {/* A BLOCKED task carries the exception that halted it, but the
+                    page never showed it — leaving staff with no reason why. */}
+                {/* The reason now lives on the task. This panel used to name an
+                    exception id and tell staff to "resolve it from the control
+                    tower to release the task" — which never released anything,
+                    because resolving only marked a row. */}
+                {halted && task?.issue ? (
+                  <div className="rounded-lg border border-warning/25 bg-warning-soft p-4">
+                    <div className="flex items-start gap-2.5">
+                      <PauseCircle className="mt-0.5 size-4 shrink-0 text-warning" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-warning">This task is halted</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {task.issue.summary || "A problem was reported on this task."} Unblock it from the
+                          Fulfilment page to return it to the queue.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <DetailSection title="Order" description="The customer order this task fulfils.">
                   <DefinitionGrid
                     columns={1}

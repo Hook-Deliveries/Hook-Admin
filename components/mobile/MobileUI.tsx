@@ -79,6 +79,7 @@ const tileTone: Record<RowTone, string> = {
  */
 export function MobileRow({
   icon: Icon,
+  leading,
   label,
   description,
   value,
@@ -89,6 +90,7 @@ export function MobileRow({
   disabled,
 }: {
   icon?: LucideIcon;
+  leading?: React.ReactNode;
   label: string;
   description?: string;
   value?: React.ReactNode;
@@ -102,6 +104,7 @@ export function MobileRow({
 
   const body = (
     <>
+      {leading}
       {Icon && (
         <span className={cn("grid size-7.5 shrink-0 place-items-center rounded-[5px]", tileTone[tone])}>
           <Icon size={18} strokeWidth={2.1} />

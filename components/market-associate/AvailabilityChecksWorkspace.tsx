@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Check, Clock3, XCircle } from "lucide-react";
-import { toast } from "sonner";
+import { Check, Clock3, Loader2, XCircle } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -15,8 +14,8 @@ import { Label } from "@/components/ui/label";
 import { HookLoader } from "@/components/shared/HookLoader";
 import { QueryState } from "@/components/shared/QueryState";
 import { MobileButton, MobileHeader } from "@/components/mobile/MobileUI";
-import { apiPost } from "@/lib/api";
-import { useApiQuery } from "@/lib/query";
+import { useApiPostTo, useApiQuery } from "@/lib/query";
+import { WorkflowThumbnail } from "@/components/market-associate/WorkflowThumbnail";
 
 type Check = {
   publicId: string;
@@ -26,7 +25,23 @@ type Check = {
   availabilityCheckNote?: string;
   catalogVersion: number;
   status: string;
+  images?: string[];
 };
+
+type ConfirmVariables = {
+  publicId: string;
+  status: "available" | "limited";
+  version: number;
+  note: string;
+};
+
+type ReportVariables = {
+  publicId: string;
+  version: number;
+  note: string;
+};
+
+const AVAILABILITY_KEY = ["marketassociate", "availability-checks"] as const;
 
 function isOverdue(value?: string) {
   return Boolean(value && new Date(value) < new Date());
@@ -38,52 +53,64 @@ function dueLabel(value?: string) {
 }
 
 export function AvailabilityChecksWorkspace() {
-  const query = useApiQuery<Check[]>(["marketassociate", "availability-checks"], "/market-associate/availability-checks");
-  const [acting, setActing] = useState<string | null>(null);
+  const query = useApiQuery<Check[]>(AVAILABILITY_KEY, "/market-associate/availability-checks");
   const [reporting, setReporting] = useState<Check | null>(null);
   const [note, setNote] = useState("");
 
-  async function confirm(item: Check, status: "available" | "limited") {
-    setActing(item.publicId);
-    try {
-      await apiPost(`/market-associate/products/${item.publicId}/availability/confirm`, {
-        status,
-        version: item.catalogVersion,
-        note:
-          status === "limited"
-            ? "Market Associate confirmed limited availability."
-            : "Market Associate confirmed availability.",
-      });
-      toast.success(`Product marked ${status}`);
-      await query.refetch();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "Availability could not be updated",
-      );
-    } finally {
-      setActing(null);
-    }
+  const confirmAvailability = useApiPostTo<unknown, ConfirmVariables>(
+    (variables) => `/market-associate/products/${variables.publicId}/availability/confirm`,
+    {
+      invalidate: AVAILABILITY_KEY,
+      // The endpoint schema is strict, so publicId stays out of the payload.
+      buildBody: ({ status, version, note: body }) => ({ status, version, note: body }),
+      successMessage: "Availability updated",
+    },
+  );
+
+  const reportUnavailable = useApiPostTo<unknown, ReportVariables>(
+    (variables) => `/market-associate/products/${variables.publicId}/availability/report`,
+    {
+      invalidate: AVAILABILITY_KEY,
+      buildBody: ({ version, note: body }) => ({ version, note: body }),
+      successMessage: "Product paused and Admin notified",
+    },
+  );
+
+  // Scope the spinner to the row actually in flight, not to any pending request.
+  const confirmingId = confirmAvailability.isPending
+    ? confirmAvailability.variables?.publicId
+    : undefined;
+  const reportingId = reportUnavailable.isPending
+    ? reportUnavailable.variables?.publicId
+    : undefined;
+
+  function confirm(item: Check, status: "available" | "limited") {
+    confirmAvailability.mutate({
+      publicId: item.publicId,
+      status,
+      version: item.catalogVersion,
+      note:
+        status === "limited"
+          ? "Market Associate confirmed limited availability."
+          : "Market Associate confirmed availability.",
+    });
   }
 
-  async function submitReport() {
+  function submitReport() {
     if (!reporting || note.trim().length < 3) return;
-    setActing(reporting.publicId);
-    try {
-      await apiPost(`/market-associate/products/${reporting.publicId}/availability/report`, {
+    reportUnavailable.mutate(
+      {
+        publicId: reporting.publicId,
         note: note.trim(),
         version: reporting.catalogVersion,
-      });
-      toast.success("Product paused and Admin notified");
-      setReporting(null);
-      setNote("");
-      await query.refetch();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message.replace(/^\d+:\s*/, "") : "Availability could not be updated",
-      );
-    } finally {
-      setActing(null);
-    }
+      },
+      {
+        onSuccess: () => {
+          setReporting(null);
+          setNote("");
+        },
+      },
+    );
   }
 
   if (query.isLoading)
@@ -121,15 +148,17 @@ export function AvailabilityChecksWorkspace() {
         <div className="space-y-3">
           {checks.map((item) => {
             const overdue = isOverdue(item.availabilityCheckDueAt);
-            const busy = acting === item.publicId;
+            const confirmingStatus =
+              confirmingId === item.publicId ? confirmAvailability.variables?.status : undefined;
+            const busy = confirmingId === item.publicId || reportingId === item.publicId;
             return (
               <div key={item.publicId} className="rounded-[10px] bg-white p-4">
-                <div className="flex items-start gap-2">
-                  <span
-                    className={`mt-0.5 grid size-7.5 shrink-0 place-items-center rounded-[5px] ${overdue ? "bg-red-50 text-red-600" : "bg-[#EAEBE7] text-black"}`}
-                  >
-                    {overdue ? <AlertTriangle size={17} /> : <Clock3 size={17} />}
-                  </span>
+                <div className="flex items-start gap-3">
+                  <WorkflowThumbnail
+                    src={item.images?.[0]}
+                    alt={`${item.title} product`}
+                    className={`size-14 ${overdue ? "ring-2 ring-red-200" : ""}`}
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px] font-semibold leading-tight text-black">{item.title}</p>
                     <p className={`mt-1 text-[12px] font-semibold ${overdue ? "text-red-600" : "text-[#8F8F8F]"}`}>
@@ -146,20 +175,23 @@ export function AvailabilityChecksWorkspace() {
                     label="Available"
                     tone="brand"
                     disabled={busy}
-                    onClick={() => void confirm(item, "available")}
+                    pending={confirmingStatus === "available"}
+                    onClick={() => confirm(item, "available")}
                   />
                   <ActionChip
                     icon={Clock3}
                     label="Limited"
                     tone="neutral"
                     disabled={busy}
-                    onClick={() => void confirm(item, "limited")}
+                    pending={confirmingStatus === "limited"}
+                    onClick={() => confirm(item, "limited")}
                   />
                   <ActionChip
                     icon={XCircle}
                     label="Unavailable"
                     tone="danger"
                     disabled={busy}
+                    pending={reportingId === item.publicId}
                     onClick={() => {
                       setReporting(item);
                       setNote("");
@@ -204,10 +236,10 @@ export function AvailabilityChecksWorkspace() {
             />
             <MobileButton
               variant="danger"
-              disabled={note.trim().length < 3 || Boolean(acting)}
-              onClick={() => void submitReport()}
+              disabled={note.trim().length < 3 || reportUnavailable.isPending}
+              onClick={() => submitReport()}
             >
-              {acting ? <HookLoader size="button" /> : "Report unavailable"}
+              {reportUnavailable.isPending ? <HookLoader size="button" /> : "Report unavailable"}
             </MobileButton>
           </div>
         </SheetContent>
@@ -221,12 +253,14 @@ function ActionChip({
   label,
   tone,
   disabled,
+  pending,
   onClick,
 }: {
   icon: React.ComponentType<{ size?: number }>;
   label: string;
   tone: "brand" | "neutral" | "danger";
   disabled?: boolean;
+  pending?: boolean;
   onClick: () => void;
 }) {
   const tones = {
@@ -239,9 +273,11 @@ function ActionChip({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-busy={pending}
       className={`flex min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-[10px] text-[12px] font-semibold transition active:opacity-80 disabled:opacity-40 ${tones[tone]}`}
     >
-      <Icon size={16} />
+      {/* Swapped in place of the icon so the chip keeps its exact footprint. */}
+      {pending ? <Loader2 size={16} className="animate-spin" /> : <Icon size={16} />}
       {label}
     </button>
   );
